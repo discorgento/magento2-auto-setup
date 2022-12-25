@@ -14,6 +14,9 @@ done
 SETUP_SCRIPT="$RELATIVE_DIR"/package-manager/"$PACKAGE_MANAGER".sh
 [ ! -e "$SETUP_SCRIPT" ] && echo 'Unsupported distro.' && exit 1
 
+# Splash screen
+./"$RELATIVE_DIR"/../ascii-splash.sh | gum format -t template
+
 # Grant sudo access
 echo 'Please provide your sudo password (to allow needed packages installation): '
 SUDO_PASS=$(gum input --password --placeholder 'Your password')
