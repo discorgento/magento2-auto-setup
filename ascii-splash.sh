@@ -21,7 +21,7 @@ echo " {{ Foreground \"$DG_LOGO\" \"\\\":\" }}     kMMMM:      :MMMMO     {{ For
 echo "  {{ Foreground \"$DG_LOGO\" \";.\" }}    \"MMMMWl.  .lWMMMM,    {{ Foreground \"$DG_LOGO\" \".;\" }}   {{ Foreground \"$SP_LOGO\" \"Spotify\" }}: {{ Underline \"https://sptlnk.com/discorgento\" }}"
 echo "   {{ Foreground \"$DG_LOGO\" \"\\\".\" }}     NMMMMMMMMMMMMN,    {{ Foreground \"$DG_LOGO\" \".,\" }}    {{ Foreground \"$TW_LOGO\" \"Twitter\" }}: {{ Underline \"https://twitter.com/discorgento\" }}"
 echo "     {{ Foreground \"$DG_LOGO\" \";.\" }}    :OWMMMMMMWO,     {{ Foreground \"$DG_LOGO\" \";\" }}      {{ Foreground \"$YT_LOGO\" \"YouTube\" }}: {{ Underline \"https://youtube.com/@discorgento\" }}"
-echo "       {{ Foreground \"$DG_LOGO\" \"\\\"..\" }}   'WWWWWW'     {{ Foreground \"$DG_LOGO\" \".'\" }}        "
+echo "       {{ Foreground \"$DG_LOGO\" \"\\\"..\" }}   '\"\"\"\"\"\"\"'    {{ Foreground \"$DG_LOGO\" \".'\" }}        "
 echo "          {{ Foreground \"$DG_LOGO\" \"''..\" }}        {{ Foreground \"$DG_LOGO\" \"..''\" }}            "
 echo "              {{ Foreground \"$DG_LOGO\" \"''''''''\" }}                 "
 echo ''

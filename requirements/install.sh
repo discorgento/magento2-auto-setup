@@ -1,5 +1,6 @@
 #!/bin/bash -e
 
+DG_LOGO_COLOR='#f16323'
 RELATIVE_DIR=$(dirname "$0")
 LOG_FILE="$RELATIVE_DIR"/install.log
 echo '' > "$LOG_FILE"
@@ -14,11 +15,15 @@ done
 SETUP_SCRIPT="$RELATIVE_DIR"/package-manager/"$PACKAGE_MANAGER".sh
 [ ! -e "$SETUP_SCRIPT" ] && echo 'Unsupported distro.' && exit 1
 
+# Welcome message
+echo "Welcome to the {{ Foreground \"$DG_LOGO_COLOR\" \"Discorgento Auto Setup\" }} requirements wizard!" | gum format -t template
+echo 'This automated script needs to be executed only once in your computer.'
+
 # Splash screen
 ./"$RELATIVE_DIR"/../ascii-splash.sh | gum format -t template
 
 # Grant sudo access
-echo 'Please provide your sudo password (to allow needed packages installation): '
+echo 'To begin, please provide your sudo password (for needed packages installation): '
 SUDO_PASS=$(gum input --password --placeholder 'Your password')
 sudo -k
 # shellcheck disable=SC2024
