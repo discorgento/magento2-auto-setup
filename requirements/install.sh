@@ -20,7 +20,7 @@ echo "Welcome to the {{ Foreground \"$DG_LOGO_COLOR\" \"Discorgento Auto Setup\"
 echo 'This automated script needs to be executed only once in your computer.'
 
 # Splash screen
-./"$RELATIVE_DIR"/../ascii-splash.sh | gum format -t template
+./"$RELATIVE_DIR"/../splash-screen/show.sh
 
 # Grant sudo access
 echo 'To begin, please provide your sudo password (for needed packages installation): '
