@@ -24,7 +24,7 @@ And `git`. Probably you already have it, but just in case:
 ## Install
 [One-time-only] Execute the following command to install this tool:
 ```sh
-INSTALL_DIR=~/.local/share/dg-m2-auto-setup bash -c 'git clone https://github.com/discorgento/magento2-auto-setup "$INSTALL_DIR" && cd "$INSTALL_DIR" && ./install.sh && cd - > /dev/null'
+INSTALL_DIR=~/.local/share/discorgento/m2-auto-setup bash -c '[ -d "$INSTALL_DIR" ] && rm "$INSTALL_DIR" -rf; git clone https://github.com/discorgento/magento2-auto-setup "$INSTALL_DIR" &> /dev/null && cd "$INSTALL_DIR" && ./install.sh && cd - > /dev/null'
 ```
 
 ## Usage

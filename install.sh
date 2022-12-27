@@ -16,7 +16,7 @@ DEPENDENCIES_INSTALLER="$INSTALL_DIR"/requirements/package-manager/"$PACKAGE_MAN
 [ ! -e "$DEPENDENCIES_INSTALLER" ] && echo 'Unsupported system.' && exit 1
 
 # Welcome message
-echo 'Installing basic needed system deps.. '
+echo -e '\nInstalling basic needed system deps.. '
 sudo -k
 
 [ ! -x "$DEPENDENCIES_INSTALLER" ] && chmod +x "$DEPENDENCIES_INSTALLER"
