@@ -1,4 +1,4 @@
-#!/bin/bash -e
+#!/bin/bash
 # shellcheck disable=SC2155
 
 # Text Formating

@@ -1,4 +1,4 @@
-#!/bin/bash -e
+#!/bin/bash
 
 ## Composer
 m2-composer() {
