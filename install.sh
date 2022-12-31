@@ -17,17 +17,17 @@ done
 
 # If there's no deps installer for given package manager, it's a unsupported system
 DEPENDENCIES_INSTALLER="$INSTALL_DIR"/requirements/"$PACKAGE_MANAGER".sh
-[ ! -e "$DEPENDENCIES_INSTALLER" ] && echo 'Unsupported system.' && exit 1
+[ ! -e "$DEPENDENCIES_INSTALLER" ] && echo '⚠️ Unsupported distro.' && exit 1
 
-# Welcome message
+# Install required packages
 echo -n 'Installing basic needed system deps.. '
 sudo -v
-
-[ ! -x "$DEPENDENCIES_INSTALLER" ] && chmod +x "$DEPENDENCIES_INSTALLER"
 ./"$DEPENDENCIES_INSTALLER" &>> "$LOG_FILE"
 
-# Post setup
-./post-setup/docker.sh &>> "$LOG_FILE"
+# Post installation
+for POST_INSTALL_SCRIPT in "$INSTALL_DIR"/post-install/*; do
+  ./"$POST_INSTALL_SCRIPT" &>> "$LOG_FILE"
+done
 
 echo 'done.'
 echo "$(tput bold)Please reboot your system$(tput sgr0) before performing your first auto setup."
