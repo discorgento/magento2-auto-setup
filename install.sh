@@ -1,6 +1,7 @@
 #!/bin/bash -e
 
 [ "$(whoami)" = 'root' ] && echo 'This script CANNOT be executed as root. Try again with your own user.' && exit 1
+[ "$(id -u)" -ne 1000 ] && echo -e "Currently we only support users with UID 1000 (the one created when you installed your system).\n$(tput bold)@see$(tput sgr0) $(tput smul)https://github.com/discorgento/magento2-auto-setup/issues/3" && exit 1
 
 INSTALL_DIR=$(dirname "$0")
 LOG_FILE="$INSTALL_DIR"/install.log
