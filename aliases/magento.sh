@@ -277,6 +277,10 @@ m2-get-bearer() {
   echo '' # prevent awkward % at the end of previous command
 }
 
+m2-generate-crypt-key() {
+  echo "${PWD##*/}" | md5sum | awk "{print $1}"
+}
+
 m2-module-disable() {
   m2 mod:dis --clear-static-content "$@"
   m2-cache-warmup
@@ -311,20 +315,35 @@ m2-xdebug-tmp-disable-after() {
 }
 
 # Aliases
+alias m2-apply-catalog-rules='m2 sys:cr:run catalogrule_apply_all'
 alias m2-biggest-tables='m2 db:query "SELECT table_schema as \"Database\", table_name AS \"Table\", round(((data_length + index_length) / 1024 / 1024), 2) \"Size in MB\" FROM information_schema.TABLES ORDER BY (data_length + index_length) DESC LIMIT 10;"'
+alias m2-cron-clean="m2 db:query 'DELETE FROM cron_schedule' && m2 cron:schedule"
 alias m2-db-dump='m2 db:dump -c gzip --strip="@stripped" -n'
+alias m2-cloud-patches-apply="m2-cli ./vendor/bin/ece-patches apply"
+alias m2-cloud-patches-list="vendor/bin/ece-patches status"
+alias m2-cloud-redeploy="m2-cli bash -c 'cloud-deploy && magento-command de:mo:set developer && cloud-post-deploy'"
 alias m2-delete-disabled-products="m2 db:query 'DELETE cpe FROM catalog_product_entity cpe JOIN catalog_product_entity_int cpei ON cpei.entity_id = cpe.entity_id AND attribute_id = (SELECT attribute_id FROM eav_attribute WHERE attribute_code = \"status\" AND entity_type_id = (SELECT entity_type_id FROM eav_entity_type WHERE entity_type_code = \"catalog_product\")) WHERE cpei.value = 2'"
 alias m2-disable-2fa="m2-module-disable Magento_TwoFactorAuth"
 alias m2-disable-captchas="m2-config-set customer/captcha/enable 0 && m2-config-set admin/captcha/enable 0"
 alias m2-elasticsearch-flush="curl -X DELETE 'http://localhost:9200/_all'"
+alias m2-fix-missing-admin-role="m2 db:query \"INSERT INTO authorization_role (role_id, parent_id, tree_level, sort_order, role_type, user_id, user_type, role_name) VALUES (1, 0, 1, 1, 'G', 0, '2', 'Administrators'); INSERT INTO authorization_rule (rule_id, role_id, resource_id, privileges, permission) VALUES (1, 1, 'Magento_Backend::all', null, 'allow')\""
 alias m2-generate-db-whitelist="m2 setup:db-declaration:generate-whitelist --module-name"
 alias m2-generate-xml-autocomplete="m2 dev:urn-catalog:generate .vscode/xsd_catalog_raw.xml"
 alias m2-list-plugins="m2 dev:di:info"
 alias m2-media-dump='zip -r media.zip pub/media --exclude "*pub/media/catalog/product/cache*"'
 alias m2-multi-store-mode="m2-config-set general/single_store_mode/enabled 0 && m2-config-set web/url/use_store 1"
+alias m2-pagebuilder-wizard="cd app/code; pbmodules; cd - > /dev/null"
 alias m2-payment-checkmo-disable="m2-config-set payment/checkmo/active 0"
 alias m2-payment-checkmo-enable="m2-config-set payment/checkmo/active 1"
+alias m2-queue-clean="m2 db:query 'DELETE FROM queue_message; DELETE FROM queue_message_status; DELETE FROM queue_lock; DELETE FROM queue_poison_pill; DELETE FROM magento_bulk; DELETE FROM magento_acknowledged_bulk'"
+alias m2-queue-fix="m2-module-disable Magento_WebapiAsync"
+alias m2-queue-list="m2 qu:co:list"
+alias m2-queue-start="m2 qu:co:start --single-thread"
+alias m2-queue-stop="dc restart rabbitmq"
 alias m2-redis-flush="dc exec redis redis-cli FLUSHALL"
+alias m2-reset-grids="m2 db:query 'delete from ui_bookmark'"
+alias m2-setup-eslint="m2-cli bash -c 'if [ ! -e package.json ] && [ -e package.json.sample ]; then cp package.json{.sample,}; fi; npm install --save-dev eslint eslint-{config-standard,plugin-{import,node,promise,n}}' && echo '{\"extends\":\"standard\",\"rules\":{\"indent\":[\"error\",4]},\"env\":{\"amd\":true,\"browser\":true,\"jquery\":true},\"globals\":{\"Chart\":\"readonly\"},\"ignorePatterns\":[\"**/vendor/magento/*.js\"]}' > .eslintrc"
+alias m2-setup-stylelint="m2-cli bash -c 'if [ ! -e package.json ] && [ -e package.json.sample ]; then cp package.json{.sample,}; fi; npm install --save-dev stylelint{,-order}'"
 alias m2-shipping-flatrate-disable="m2-config-set carriers/flatrate/active 0"
 alias m2-shipping-flatrate-enable="m2-config-set carriers/flatrate/active 1"
 alias m2-shipping-freeshipping-disable="m2-config-set carriers/freeshipping/active 0"
