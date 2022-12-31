@@ -3,7 +3,7 @@
 ## Composer
 m2-composer() {
   ! m2-check-infra && return 1
-  dm-xdebug-tmp-disable-before
+  m2-xdebug-tmp-disable-before
   m2-cache-watch-kill
 
   # Make sure to use the latest minor version of Composer 2.2 LTS
@@ -17,7 +17,7 @@ m2-composer() {
 
   dm composer "$@"
 
-  dm-xdebug-tmp-disable-after
+  m2-xdebug-tmp-disable-after
 }
 alias c="m2-composer"
 

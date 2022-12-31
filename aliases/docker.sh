@@ -17,3 +17,12 @@ d-stop-all() {
   d stop $(d ps -q) &> /dev/null
   echo 'done.'
 }
+
+## Docker Magento
+dm() {
+  ! m2-is-store-root-folder && return 1
+
+  cd ..
+  "bin/$1" "${@:2}"
+  cd - &> /dev/null || return
+}

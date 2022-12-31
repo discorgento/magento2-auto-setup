@@ -69,12 +69,12 @@ m2-stop() {
 
 m2-setup-upgrade() {
   ! m2-check-infra && return 1
-  dm-xdebug-tmp-disable-before
+  m2-xdebug-tmp-disable-before
   m2-cache-watch-kill
 
   m2 se:up
 
-  dm-xdebug-tmp-disable-after
+  m2-xdebug-tmp-disable-after
   m2-cache-warmup
 }
 
@@ -97,7 +97,7 @@ m2-db-import() {
   fi
 
   ! m2-check-infra && return 1
-  dm-xdebug-tmp-disable-before
+  m2-xdebug-tmp-disable-before
 
   if [ ! "$(m2-cli bash -c 'which pv')" ]; then
     echo -n 'Enabling progress bar.. '
@@ -134,15 +134,14 @@ m2-db-import() {
       path LIKE 'web/secure/%' OR
       path LIKE 'web/unsecure/%' OR
       path IN (
-        'design/head/includes',
-        'amasty_checkout/design/header/logo_src'
+        'design/head/includes'
       );
   "
 
   m2 se:up
   m2-cache-warmup
   m2-recreate-admin-user
-  m2-grids-improved # needs to be after admin user creation
+  m2-grids-slim # needs to be after admin user creation
   m2 cache:enable
   m2 indexer:set-mode schedule
   m2-clean-logs
@@ -152,7 +151,7 @@ m2-db-import() {
   m2-reindex-invalid &>> var/docker/auto-reindex.log
   echo 'done.'
 
-  dm-xdebug-tmp-disable-after
+  m2-xdebug-tmp-disable-after
 }
 
 m2-grunt() {
@@ -167,7 +166,7 @@ m2-grunt() {
   m2-cli grunt "$@"
 }
 
-m2-grids-improved() {
+m2-grids-slim() {
   m2 db:query "
     # Lean admin grids
     DELETE FROM ui_bookmark WHERE namespace IN ('customer_listing', 'product_listing', 'sales_order_grid');
@@ -301,21 +300,31 @@ m2-test-class() {
   m2 dev:con --no-ansi "\$di->create(${1}::class) ? 'Valid.' : 'INVALID!!'; exit" | grep '=>'
 }
 
+m2-xdebug-tmp-disable-before() {
+  M2_HANDLE_XDEBUG="$(m2-xdebug-is-enabled)"
+  [ "$M2_HANDLE_XDEBUG" ] && m2-xdebug-disable
+}
+
+m2-xdebug-tmp-disable-after() {
+  [ "$M2_HANDLE_XDEBUG" ] && m2-xdebug-enable
+  unset M2_HANDLE_XDEBUG
+}
+
 # Aliases
 alias m2-biggest-tables='m2 db:query "SELECT table_schema as \"Database\", table_name AS \"Table\", round(((data_length + index_length) / 1024 / 1024), 2) \"Size in MB\" FROM information_schema.TABLES ORDER BY (data_length + index_length) DESC LIMIT 10;"'
 alias m2-db-dump='m2 db:dump -c gzip --strip="@stripped" -n'
 alias m2-delete-disabled-products="m2 db:query 'DELETE cpe FROM catalog_product_entity cpe JOIN catalog_product_entity_int cpei ON cpei.entity_id = cpe.entity_id AND attribute_id = (SELECT attribute_id FROM eav_attribute WHERE attribute_code = \"status\" AND entity_type_id = (SELECT entity_type_id FROM eav_entity_type WHERE entity_type_code = \"catalog_product\")) WHERE cpei.value = 2'"
-alias m2-disable-captcha="m2-config-set customer/captcha/enable 0 && m2-config-set admin/captcha/enable 0"
 alias m2-disable-2fa="m2-module-disable Magento_TwoFactorAuth"
-alias m2-flush-elasticsearch="curl -X DELETE 'http://localhost:9200/_all'"
-alias m2-flush-redis="dc exec redis redis-cli FLUSHALL"
-alias m2-generate-whitelist="m2 setup:db-declaration:generate-whitelist --module-name"
+alias m2-disable-captchas="m2-config-set customer/captcha/enable 0 && m2-config-set admin/captcha/enable 0"
+alias m2-elasticsearch-flush="curl -X DELETE 'http://localhost:9200/_all'"
+alias m2-generate-db-whitelist="m2 setup:db-declaration:generate-whitelist --module-name"
 alias m2-generate-xml-autocomplete="m2 dev:urn-catalog:generate .vscode/xsd_catalog_raw.xml"
 alias m2-list-plugins="m2 dev:di:info"
 alias m2-media-dump='zip -r media.zip pub/media --exclude "*pub/media/catalog/product/cache*"'
 alias m2-multi-store-mode="m2-config-set general/single_store_mode/enabled 0 && m2-config-set web/url/use_store 1"
 alias m2-payment-checkmo-disable="m2-config-set payment/checkmo/active 0"
 alias m2-payment-checkmo-enable="m2-config-set payment/checkmo/active 1"
+alias m2-redis-flush="dc exec redis redis-cli FLUSHALL"
 alias m2-shipping-flatrate-disable="m2-config-set carriers/flatrate/active 0"
 alias m2-shipping-flatrate-enable="m2-config-set carriers/flatrate/active 1"
 alias m2-shipping-freeshipping-disable="m2-config-set carriers/freeshipping/active 0"
