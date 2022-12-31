@@ -16,7 +16,7 @@ for PACKAGE_MANAGER in "${PACKAGE_MANAGERS[@]}"; do
 done
 
 # If there's no deps installer for given package manager, it's a unsupported system
-DEPENDENCIES_INSTALLER="$INSTALL_DIR"/requirements/package-manager/"$PACKAGE_MANAGER".sh
+DEPENDENCIES_INSTALLER="$INSTALL_DIR"/requirements/"$PACKAGE_MANAGER".sh
 [ ! -e "$DEPENDENCIES_INSTALLER" ] && echo 'Unsupported system.' && exit 1
 
 # Welcome message
@@ -26,8 +26,8 @@ sudo -v
 [ ! -x "$DEPENDENCIES_INSTALLER" ] && chmod +x "$DEPENDENCIES_INSTALLER"
 ./"$DEPENDENCIES_INSTALLER" &>> "$LOG_FILE"
 
-# Common setup
-./requirements/common.sh &>> "$LOG_FILE"
+# Post setup
+./post-setup/docker.sh &>> "$LOG_FILE"
 
 echo 'done.'
 echo "$(tput bold)Please reboot your system$(tput sgr0) before performing your first auto setup."
