@@ -1,5 +1,7 @@
 #!/bin/bash -e
 
+[ "$(whoami)" = 'root' ] && echo 'This script CANNOT be executed as root. Try again with your own user.' && exit 1
+
 INSTALL_DIR=$(dirname "$0")
 LOG_FILE="$INSTALL_DIR"/install.log
 echo '' > "$LOG_FILE"
@@ -16,14 +18,14 @@ DEPENDENCIES_INSTALLER="$INSTALL_DIR"/requirements/package-manager/"$PACKAGE_MAN
 [ ! -e "$DEPENDENCIES_INSTALLER" ] && echo 'Unsupported system.' && exit 1
 
 # Welcome message
-echo -e '\nInstalling basic needed system deps.. '
-sudo -k
+echo -n 'Installing basic needed system deps.. '
+sudo -v
 
 [ ! -x "$DEPENDENCIES_INSTALLER" ] && chmod +x "$DEPENDENCIES_INSTALLER"
 ./"$DEPENDENCIES_INSTALLER" &>> "$LOG_FILE"
 
 # Common setup
-./requirements/common.sh
+./requirements/common.sh &>> "$LOG_FILE"
 
-echo 'Done.'
-echo -e "\n$(tput bold)Please reboot your system$(tput sgr0) before performing your first auto setup."
+echo 'done.'
+echo "$(tput bold)Please reboot your system$(tput sgr0) before performing your first auto setup."
