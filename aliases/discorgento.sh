@@ -1,13 +1,14 @@
-#!/bin/bash -e
+#!/bin/bash
 
-DG='#f16323'
-DI='#7389dc'
-IN='#c13584'
-SP='#1ed760'
-TW='#1d9bf0'
-YT='#f00'
+dg-splash-screen() {
+  local DG='#f16323'
+  local DI='#7389dc'
+  local IN='#c13584'
+  local SP='#1ed760'
+  local TW='#1d9bf0'
+  local YT='#f00'
 
-gum format -t template << EOL
+  gum format -t template << EOL
 
             {{ Foreground "$DG" ".:-==========-:." }}              {{ Foreground "$DG" (Bold "DISCORGENTO") }} · {{ Underline "https://discorgento.com" }}
         {{ Foreground "$DG" ".:==-:.." }}         {{ Foreground "$DG" ".:-=-:." }}          {{ Italic "M2 development made" }} {{ CrossOut (Italic "easy") }} {{ Italic "less painful" }}
@@ -31,3 +32,4 @@ gum format -t template << EOL
             {{ Foreground "$DG" ".:-==========-:." }}              {{ Underline "https://youtube.com/@discorgento" }}
 
 EOL
+}
