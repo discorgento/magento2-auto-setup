@@ -41,6 +41,10 @@ m2-version() {
   jq -r '.version' composer.json
 }
 
+m2-bash() {
+  m2-cli bash
+}
+
 m2-cli() {
   ! m2-check-infra && return 1
   dm cli "${@:-bash}"
@@ -74,7 +78,7 @@ m2-stop() {
 m2-setup-upgrade() {
   ! m2-check-infra && return 1
   m2-xdebug-tmp-disable-before
-  m2-cache-watch-kill
+  m2-cache-watch-stop
 
   m2 se:up
 
@@ -160,14 +164,7 @@ m2-db-import() {
 
 m2-grunt() {
   ! m2-check-infra && return 1
-
-  if [ -z "$(m2-cli bash -c 'which grunt')" ]; then
-    echo -n "Installing ${_DG_BOLD}Grunt CLI${_DG_UNFORMAT}.. "
-    m2-root bash -c 'npm install && npm install -g grunt-cli && git checkout dev && chown -R 1000:1000 node_modules dev' &> var/docker/grunt.log
-    echo 'done.'
-  fi
-
-  m2-cli grunt "$@"
+  m2-cli npx --yes grunt "$@"
 }
 
 m2-grids-slim() {
@@ -200,7 +197,7 @@ m2-cache-watch() {
   dm cache-clean --watch
 }
 
-m2-cache-watch-kill() {
+m2-cache-watch-stop() {
   m2-cli bash -c 'pgrep -f cache-clean | xargs kill' &> /dev/null
 }
 
