@@ -1,3 +1,4 @@
 #!/bin/bash -e
 
-sudo pacman -S --noconfirm --needed docker{,-compose} gum
+# install packages (btw)
+sudo pacman -S --noconfirm --needed docker{,-compose} gum jq

@@ -2,7 +2,10 @@
 
 dg-setup-m2() {
   local USAGE="\n${_DG_UNDERLINE}Usage${_DG_UNFORMAT}\n\
-  ${_DG_BOLD}${FUNCNAME[0]:-${funcstack[1]}}${_DG_UNFORMAT} ${_DG_ITALIC}GIT_URL${_DG_UNFORMAT} [-b ${_DG_ITALIC}BRANCH${_DG_UNFORMAT}]"
+  ${_DG_BOLD}${FUNCNAME[0]:-${funcstack[1]}}${_DG_UNFORMAT} ${_DG_ITALIC}GIT_URL${_DG_UNFORMAT}\
+  [--branch ${_DG_ITALIC}BRANCH${_DG_UNFORMAT}]\
+  [--db ${_DG_ITALIC}DATABASE_TO_IMPORT.sql[.gz]${_DG_UNFORMAT}]\
+  "
 
   [ -z "$1" ] && echo 'The GIT_URL is mandatory.' && echo -e "$USAGE" && return 1
 }

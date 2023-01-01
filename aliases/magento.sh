@@ -37,6 +37,10 @@ mr2-check-install() {
   echo 'done.'
 }
 
+m2-version() {
+  jq -r '.version' composer.json
+}
+
 m2-cli() {
   ! m2-check-infra && return 1
   dm cli "${@:-bash}"
