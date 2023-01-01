@@ -1,5 +1,12 @@
 #!/bin/bash
 
+dg-setup-m2() {
+  local USAGE="\n${_DG_UNDERLINE}Usage${_DG_UNFORMAT}\n\
+  ${_DG_BOLD}${FUNCNAME[0]:-${funcstack[1]}}${_DG_UNFORMAT} ${_DG_ITALIC}GIT_URL${_DG_UNFORMAT} [-b ${_DG_ITALIC}BRANCH${_DG_UNFORMAT}]"
+
+  [ -z "$1" ] && echo 'The GIT_URL is mandatory.' && echo -e "$USAGE" && return 1
+}
+
 dg-splash-screen() {
   local DG='#f16323'
   local DI='#7389dc'
