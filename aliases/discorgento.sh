@@ -10,6 +10,12 @@ dg-setup-m2() {
   [ -z "$1" ] && echo 'The GIT_URL is mandatory.' && echo -e "$USAGE" && return 1
 }
 
+dg-welsome-msg() {
+  echo '╔══════════════════════════════════════════════════════════════════════════════╗'
+  echo '║                         @todo welcome msg goes here.                         ║'
+  echo '╚══════════════════════════════════════════════════════════════════════════════╝'
+}
+
 dg-splash-screen() {
   local DG='#f16323'
   local DI='#7389dc'

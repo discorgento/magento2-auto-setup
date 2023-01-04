@@ -4,7 +4,7 @@
 m2-composer() {
   ! m2-check-infra && return 1
   m2-xdebug-tmp-disable-before
-  m2-cache-watch-kill
+  m2-cache-watch-stop
 
   # Make sure to use the latest minor version of Composer 2.2 LTS
   if [ ! "$(m2-root bash -c '[ -e /.composer-updated.flag ] && echo 1')" ]; then

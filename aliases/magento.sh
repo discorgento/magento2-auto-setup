@@ -119,11 +119,13 @@ m2-db-import() {
   local DUMP_FILE_EXTENSION
   DUMP_FILE_EXTENSION="${DUMP_FILE_NAME##*.}"
 
+  setterm --cursor off
   case "$DUMP_FILE_EXTENSION" in
     sql) m2 db:im "$DUMP_FILE_NAME" ;;
     gz) m2 db:im -c gzip "$DUMP_FILE_NAME" ;;
     *) echo -e "Dump file type is not supported." && return 1 ;;
   esac
+  setterm --cursor on
 
   m2 db:query "
     TRUNCATE adminnotification_inbox;
@@ -164,7 +166,7 @@ m2-db-import() {
 
 m2-grunt() {
   ! m2-check-infra && return 1
-  m2-cli npx --yes grunt "$@"
+  m2-npx grunt "$@"
 }
 
 m2-grids-slim() {
@@ -205,6 +207,23 @@ m2-clean-logs() {
   mkdir -p var/log
   m2-root chown -Rc 1000:1000 var/log
   truncate -s 0 var/log/*.log &> /dev/null
+}
+
+m2-clean-sql-dump() {
+  ! dg-is-valid-file "$1" && return 1
+
+  echo -n "Cleaning the provided ${_DG_BOLD}$1${_DG_UNFORMAT} file.. "
+  mkdir -p var/log
+
+  # shellcheck disable=SC2016
+  sed '
+    s/\sDEFINER=`[^`]*`@`[^`]*`//g;
+    /@@GLOBAL.GTID/,/\;/d;
+    /^CREATE DATABASE/d;
+    /^USE /d
+  ' -i "$1" &> var/log/sql-clean.log
+
+  echo 'done.'
 }
 
 m2-compile-assets() {
@@ -292,6 +311,14 @@ m2-module-enable() {
   m2-cache-warmup
 }
 
+m2-npm() {
+  m2-cli npm "$@"
+}
+
+m2-npx() {
+  m2-cli npx --yes "$@"
+}
+
 m2-console() {
   [ -z "$1" ] && m2 dev:con && return 0
   m2 dev:con --no-ansi "$1; exit" | sed $'s,\x1b\\[[0-9;]*[a-zA-Z],,g' | grep '=>' | sed -e 's/=> //'
@@ -329,7 +356,7 @@ alias m2-disable-captchas="m2-config-set customer/captcha/enable 0 && m2-config-
 alias m2-elasticsearch-flush="curl -X DELETE 'http://localhost:9200/_all'"
 alias m2-fix-missing-admin-role="m2 db:query \"INSERT INTO authorization_role (role_id, parent_id, tree_level, sort_order, role_type, user_id, user_type, role_name) VALUES (1, 0, 1, 1, 'G', 0, '2', 'Administrators'); INSERT INTO authorization_rule (rule_id, role_id, resource_id, privileges, permission) VALUES (1, 1, 'Magento_Backend::all', null, 'allow')\""
 alias m2-generate-db-whitelist="m2 setup:db-declaration:generate-whitelist --module-name"
-alias m2-generate-xml-autocomplete="m2 dev:urn-catalog:generate .vscode/xsd_catalog_raw.xml"
+alias m2-generate-xml-autocomplete="m2 dev:urn-catalog:generate xsd_catalog_raw.xml"
 alias m2-list-plugins="m2 dev:di:info"
 alias m2-media-dump='zip -r media.zip pub/media --exclude "*pub/media/catalog/product/cache*"'
 alias m2-multi-store-mode="m2-config-set general/single_store_mode/enabled 0 && m2-config-set web/url/use_store 1"
