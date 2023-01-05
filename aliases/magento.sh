@@ -21,10 +21,7 @@ m2-is-store-root-folder() {
 
 m2-check-infra() {
   ! m2-is-store-root-folder && return 1
-
-  local IS_CONTAINER_RUNNING
-  IS_CONTAINER_RUNNING=$(dc ps --status=running -q phpfpm)
-  [ -z "$IS_CONTAINER_RUNNING" ] && m2-start
+  ! dc ps --status=running -q phpfpm &> /dev/null && m2-start
 
   return 0
 }
@@ -43,6 +40,10 @@ m2-version() {
 
 m2-bash() {
   m2-cli bash
+}
+
+m2-biggest-tables() {
+  m2 db:query "SELECT table_schema as 'Database', table_name AS 'Table', round(((data_length + index_length) / 1024 / 1024), 2) 'Size in MB' FROM information_schema.TABLES ORDER BY (data_length + index_length) DESC LIMIT ${1:-10};"
 }
 
 m2-cli() {
@@ -87,12 +88,19 @@ m2-setup-upgrade() {
 }
 
 m2-config-set() {
-  m2 config:set -n --lock-env "$@"
-  m2-cache-warmup
+  m2 config:set -n --lock-env "$@" 1> /dev/null
 }
 
 m2-config-get() {
   m2 dev:con "\$di->create(\Magento\Framework\App\Config\ScopeConfigInterface::class)->getValue('$1');exit" | grep '=>'
+}
+
+m2-db-console() {
+  m2 db:co
+}
+
+m2-db-dump() {
+  m2 db:dump -c gzip --strip="@stripped" -n
 }
 
 m2-db-import() {
@@ -182,16 +190,13 @@ m2-grids-slim() {
 }
 
 m2-recreate-admin-user() {
-  m2 adm:us:del admin -f
+  m2 adm:us:del admin -f &> /dev/null
   m2 adm:us:cr --admin-firstname=Admin --admin-lastname=Magento --admin-email=dev@mycompany.com --admin-user=admin --admin-password=Admin123@
-  m2 db:query 'UPDATE admin_user SET interface_locale="pt_BR" WHERE username="admin"'
 }
 
 m2-cache-warmup() {
   ! m2-check-infra && return 1
-
   (dm clinotty curl -sLk 172.17.0.1 &) &> var/docker/cache-warmup.html
-  (bash -c 'sleep 10 && truncate -s 0 var/log/*.log' &) &> /dev/null
 }
 
 m2-cache-watch() {
@@ -344,9 +349,7 @@ m2-xdebug-tmp-disable-after() {
 
 # Aliases
 alias m2-apply-catalog-rules='m2 sys:cr:run catalogrule_apply_all'
-alias m2-biggest-tables='m2 db:query "SELECT table_schema as \"Database\", table_name AS \"Table\", round(((data_length + index_length) / 1024 / 1024), 2) \"Size in MB\" FROM information_schema.TABLES ORDER BY (data_length + index_length) DESC LIMIT 10;"'
 alias m2-cron-clean="m2 db:query 'DELETE FROM cron_schedule' && m2 cron:schedule"
-alias m2-db-dump='m2 db:dump -c gzip --strip="@stripped" -n'
 alias m2-cloud-patches-apply="m2-cli ./vendor/bin/ece-patches apply"
 alias m2-cloud-patches-list="vendor/bin/ece-patches status"
 alias m2-cloud-redeploy="m2-cli bash -c 'cloud-deploy && magento-command de:mo:set developer && cloud-post-deploy'"
