@@ -250,31 +250,24 @@ m2-deploy() {
 }
 
 m2-orders-delete-old() {
-  local KEEP_UNTIL_DATE
-  KEEP_UNTIL_DATE=$(date +%Y-%m-%d -d "6 months ago")
+  local KEEP_ORDERS_SINCE_DATE
+  KEEP_ORDERS_SINCE_DATE=$(date +%Y-%m-%d -d "6 months ago")
 
-  echo -n "Retrieving the total of records before $KEEP_UNTIL_DATE.. "
-  local REMAINING
-  REMAINING=$(m2 db:query "SELECT count(*) FROM sales_order WHERE created_at < '$KEEP_UNTIL_DATE 00:00:00'" | grep -v 'count' -m 1 | grep -o '[0-9]*')
-  echo "done. Total: $REMAINING"
+  m2-sql-mass-delete sales_order "created_at < '$KEEP_ORDERS_SINCE_DATE 00:00:00'"
+  m2-sql-mass-delete sales_order_grid "created_at < '$KEEP_ORDERS_SINCE_DATE 00:00:00'"
+  m2-sql-mass-delete sales_order_tax "order_id NOT IN (SELECT entity_id FROM sales_order)"
 
-  local BATCH_SIZE
-  BATCH_SIZE=50000
+  echo -n 'Cleaning up residual stuff.. '
 
-  local ITERATIONS
-  ITERATIONS=$(bc -q <<< "$REMAINING / $BATCH_SIZE")
+  echo -n 'grid.. '
+  m2 db:query "DELETE FROM sales_order_grid WHERE entity_id NOT IN (SELECT entity_id FROM sales_order)"
 
-  local MOD_REST
-  MOD_REST=$(bc -q <<< "$REMAINING % $BATCH_SIZE")
-  [ "$MOD_REST" -gt 0 ] && ITERATIONS=$(bc -q <<< "$ITERATIONS + 1")
-
-  for I in $(seq 1 "$ITERATIONS"); do
-    echo -ne "\rDeleting page $I/$ITERATIONS.. "
-    m2 db:query "DELETE FROM sales_order WHERE created_at < '2022-06-01 00:00:00' LIMIT $BATCH_SIZE"
-    REMAINING=$REMAINING-$BATCH_SIZE
-  done
+  echo -n 'taxes..'
+  m2 db:query "DELETE FROM sales_order_tax WHERE order_id NOT IN (SELECT entity_id FROM sales_order)"
 
   echo 'done.'
+
+  echo -e '\nOld orders cleanup finished.'
 }
 
 m2-reindex() {
@@ -289,8 +282,33 @@ m2-reindex-invalid() {
   m2 sy:cr:run indexer_reindex_all_invalid
 }
 
-m2-sql-watch-queries() {
-  m2-cli watch -x bin/magerun2 db:query 'SHOW FULL PROCESSLIST'
+m2-sql-mass-delete() {
+  [ -z "$1" ] && _dg_msg_error 'The table name is mandatory.' && return 1
+  [ -z "$2" ] && _dg_msg_error 'The where clause is mandatory.' && return 1
+
+  echo -n "Counting the records in table ${_DG_BOLD}$1${_DG_UNFORMAT}.. "
+  local REMAINING
+  REMAINING=$(m2 db:query "SELECT count(*) FROM $1 WHERE $2" | grep -v 'count' -m 1 | grep -o '[0-9]*')
+  echo "done. Total: $REMAINING"
+
+  local BATCH_SIZE
+  BATCH_SIZE=50000
+
+  local ITERATIONS
+  ITERATIONS=$(bc -q <<< "$REMAINING / $BATCH_SIZE")
+
+  local MOD_REST
+  MOD_REST=$(bc -q <<< "$REMAINING % $BATCH_SIZE")
+  [ "$MOD_REST" -gt 0 ] && ITERATIONS=$(bc -q <<< "$ITERATIONS + 1")
+
+  [ "$ITERATIONS" -lt 1 ] && return 0
+
+  for I in $(seq 1 "$ITERATIONS"); do
+    echo -ne "\rDeleting page $I/$ITERATIONS.. "
+    m2 db:query "DELETE FROM $1 WHERE $2 LIMIT $BATCH_SIZE"
+    REMAINING=$REMAINING-$BATCH_SIZE
+  done
+  echo 'done.'
 }
 
 m2-sql-clean-file() {
@@ -308,6 +326,10 @@ m2-sql-clean-file() {
   ' -i "$1" &> var/log/sql-clean.log
 
   echo 'done.'
+}
+
+m2-sql-watch-queries() {
+  m2-cli watch -x bin/magerun2 db:query 'SHOW FULL PROCESSLIST'
 }
 
 m2-xdebug-is-enabled() {
