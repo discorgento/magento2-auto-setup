@@ -10,4 +10,4 @@ echo "deb [signed-by=/etc/apt/keyrings/charm.gpg] https://repo.charm.sh/apt/ * *
 sudo apt update
 
 # install the packages
-sudo apt install -y docker{,-compose} gum jq
+sudo apt install -y bc docker{,-compose} gum jq

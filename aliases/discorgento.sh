@@ -49,3 +49,22 @@ dg-splash-screen() {
 
 EOL
 }
+
+_dg-msg-error() {
+  _dg-msg-abstract '#f00' "🗙 $*"
+}
+
+_dg-msg-warning() {
+  _dg-msg-abstract '#ffcd2e' "⚠ $*"
+}
+
+_dg-msg-success() {
+  _dg-msg-abstract '#0f0' "✔ $*"
+}
+
+_dg-msg-abstract() {
+  local COLOR="$1"
+  local MESSAGE="$2"
+
+  echo "{{ Foreground \"$COLOR\" \"$MESSAGE\" }}" | gum 1>&2 format -t template
+}

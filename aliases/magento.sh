@@ -12,10 +12,7 @@ m2() {
 }
 
 m2-is-store-root-folder() {
-  if [[ ! -f bin/magento || ! -f app/etc/di.xml ]]; then
-    echo "This command must be executed in the store root dir." && return 1
-  fi
-
+  ! m2-version 1> /dev/null && return 1
   return 0
 }
 
@@ -34,8 +31,24 @@ mr2-check-install() {
   echo 'done.'
 }
 
+_m2-get-version-for() {
+  local VERSION
+  VERSION=$(jq -r ".require.\"magento/product-$1-edition\"" composer.json 2> /dev/null)
+  [ "$VERSION" != "null" ] && echo "$VERSION" || echo ''
+}
+
 m2-version() {
-  jq -r '.version' composer.json
+  local MAGENTO_EE_VERSION
+  MAGENTO_EE_VERSION="$(_m2-get-version-for enterprise)"
+
+  local MAGENTO_CE_VERSION
+  MAGENTO_CE_VERSION="$(_m2-get-version-for community)"
+
+  local VERSION
+  VERSION=$([ -n "$MAGENTO_EE_VERSION" ] && echo "$MAGENTO_EE_VERSION" || echo "$MAGENTO_CE_VERSION")
+  [ -z "$VERSION" ] && _dg-msg-error 'This command must be executed on the store root folder.' && return 1
+
+  echo "$VERSION"
 }
 
 m2-bash() {
@@ -214,23 +227,6 @@ m2-clean-logs() {
   truncate -s 0 var/log/*.log &> /dev/null
 }
 
-m2-clean-sql-dump() {
-  ! dg-is-valid-file "$1" && return 1
-
-  echo -n "Cleaning the provided ${_DG_BOLD}$1${_DG_UNFORMAT} file.. "
-  mkdir -p var/log
-
-  # shellcheck disable=SC2016
-  sed '
-    s/\sDEFINER=`[^`]*`@`[^`]*`//g;
-    /@@GLOBAL.GTID/,/\;/d;
-    /^CREATE DATABASE/d;
-    /^USE /d
-  ' -i "$1" &> var/log/sql-clean.log
-
-  echo 'done.'
-}
-
 m2-compile-assets() {
   rm -rf pub/static/{adminhtml,frontend} var/view_preprocessed/pub/static &> /dev/null
   m2 ca:cl full_page
@@ -253,6 +249,33 @@ m2-deploy() {
   m2 se:st:deploy -j 4
 }
 
+m2-orders-delete-old() {
+  local KEEP_UNTIL_DATE
+  KEEP_UNTIL_DATE=$(date +%Y-%m-%d -d "6 months ago")
+
+  echo -n "Retrieving the total of records before $KEEP_UNTIL_DATE.. "
+  local REMAINING
+  REMAINING=$(m2 db:query "SELECT count(*) FROM sales_order WHERE created_at < '$KEEP_UNTIL_DATE 00:00:00'" | grep -v 'count' -m 1 | grep -o '[0-9]*')
+  echo "done. Total: $REMAINING"
+
+  local BATCH_SIZE
+  BATCH_SIZE=100000
+
+  local ITERATIONS
+  ITERATIONS=$(bc -q <<< "$REMAINING / $BATCH_SIZE")
+
+  local MOD_REST
+  MOD_REST=$(bc -q <<< "$REMAINING % $BATCH_SIZE")
+  [ "$MOD_REST" -gt 0 ] && ITERATIONS=$(bc -q <<< "$ITERATIONS + 1")
+
+  for I in $(seq 1 "$ITERATIONS"); do
+    echo -n "Deleting page $I/$ITERATIONS.. "
+    m2 db:query "DELETE FROM sales_order WHERE created_at < '2022-06-01 00:00:00' LIMIT $BATCH_SIZE"
+    REMAINING=$REMAINING-$BATCH_SIZE
+    echo 'done.'
+  done
+}
+
 m2-reindex() {
   m2 indexer:reindex
 }
@@ -263,6 +286,27 @@ m2-reindex-catalog() {
 
 m2-reindex-invalid() {
   m2 sy:cr:run indexer_reindex_all_invalid
+}
+
+m2-sql-watch-queries() {
+  m2-cli watch -x bin/magerun2 db:query 'SHOW FULL PROCESSLIST'
+}
+
+m2-sql-clean-file() {
+  ! dg-is-valid-file "$1" && return 1
+
+  echo -n "Cleaning the provided ${_DG_BOLD}$1${_DG_UNFORMAT} file.. "
+  mkdir -p var/log
+
+  # shellcheck disable=SC2016
+  sed '
+    s/\sDEFINER=`[^`]*`@`[^`]*`//g;
+    /@@GLOBAL.GTID/,/\;/d;
+    /^CREATE DATABASE/d;
+    /^USE /d
+  ' -i "$1" &> var/log/sql-clean.log
+
+  echo 'done.'
 }
 
 m2-xdebug-is-enabled() {
