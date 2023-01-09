@@ -259,7 +259,7 @@ m2-orders-delete-old() {
   echo "done. Total: $REMAINING"
 
   local BATCH_SIZE
-  BATCH_SIZE=100000
+  BATCH_SIZE=50000
 
   local ITERATIONS
   ITERATIONS=$(bc -q <<< "$REMAINING / $BATCH_SIZE")
@@ -269,11 +269,12 @@ m2-orders-delete-old() {
   [ "$MOD_REST" -gt 0 ] && ITERATIONS=$(bc -q <<< "$ITERATIONS + 1")
 
   for I in $(seq 1 "$ITERATIONS"); do
-    echo -n "Deleting page $I/$ITERATIONS.. "
+    echo -ne "\rDeleting page $I/$ITERATIONS.. "
     m2 db:query "DELETE FROM sales_order WHERE created_at < '2022-06-01 00:00:00' LIMIT $BATCH_SIZE"
     REMAINING=$REMAINING-$BATCH_SIZE
-    echo 'done.'
   done
+
+  echo 'done.'
 }
 
 m2-reindex() {
