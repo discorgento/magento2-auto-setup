@@ -1,5 +1,23 @@
 #!/bin/bash
 
+# Output formatting
+dg-text-bold() {
+  echo "${_DG_BOLD}$*${_DG_UNFORMAT}"
+}
+
+dg-text-italic() {
+  echo "${_DG_ITALIC}$*${_DG_UNFORMAT}"
+}
+
+dg-text-underline() {
+  echo "${_DG_UNDERLINE}$*${_DG_UNFORMAT}"
+}
+
+dg-text-highlight() {
+  echo "${_DG_HIGHLIGHT}$*${_DG_UNFORMAT}"
+}
+
+# File handling
 dg-cp() {
   [ -z "$1" ] && echo "The ${_DG_BOLD}from${_DG_UNFORMAT} parameter is mandatory." && return 1
   [ -z "$2" ] && echo "The ${_DG_BOLD}to${_DG_UNFORMAT} parameter is mandatory." && return 1

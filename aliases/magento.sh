@@ -101,7 +101,7 @@ m2-setup-upgrade() {
 }
 
 m2-config-set() {
-  m2 config:set -n --lock-env "$@" 1> /dev/null
+  m2 config:set -n --lock-env "$@"
 }
 
 m2-config-get() {
@@ -148,6 +148,12 @@ m2-db-import() {
   esac
   setterm --cursor on
 
+  m2-post-db-import
+
+  m2-xdebug-tmp-disable-after
+}
+
+m2-post-db-import() {
   m2 db:query "
     TRUNCATE adminnotification_inbox;
 
@@ -177,12 +183,10 @@ m2-db-import() {
   m2 indexer:set-mode schedule
   m2-clean-logs
 
-  echo -n "Reindexing (${_DG_BOLD}optional${_DG_UNFORMAT}, skip anytime with Ctrl+C).. "
+  echo -n "Reindexing ($(dg-text-bold optional), skip anytime with Ctrl+C).. "
   m2-reindex-catalog &> var/docker/auto-reindex.log
   m2-reindex-invalid &>> var/docker/auto-reindex.log
   echo 'done.'
-
-  m2-xdebug-tmp-disable-after
 }
 
 m2-grunt() {
@@ -247,6 +251,11 @@ m2-deploy() {
   m2 se:up
   m2 se:di:co
   m2 se:st:deploy -j 4
+}
+
+m2-console() {
+  [ -z "$1" ] && m2 dev:con && return 0
+  m2 dev:con --no-ansi "$1; exit" | sed $'s,\x1b\\[[0-9;]*[a-zA-Z],,g' | grep '=>' | sed -e 's/=> //'
 }
 
 m2-orders-delete-old() {
@@ -391,9 +400,12 @@ m2-npx() {
   m2-cli npx --yes "$@"
 }
 
-m2-console() {
-  [ -z "$1" ] && m2 dev:con && return 0
-  m2 dev:con --no-ansi "$1; exit" | sed $'s,\x1b\\[[0-9;]*[a-zA-Z],,g' | grep '=>' | sed -e 's/=> //'
+m2-redis-console() {
+  dc exec -it redis redis-cli "$@"
+}
+
+m2-redis-flush() {
+  m2-redis-console FLUSHALL
 }
 
 m2-sanitize-sku() {
@@ -429,7 +441,6 @@ alias m2-generate-db-whitelist="m2 setup:db-declaration:generate-whitelist --mod
 alias m2-generate-xml-autocomplete="m2 dev:urn-catalog:generate xsd_catalog_raw.xml"
 alias m2-list-plugins="m2 dev:di:info"
 alias m2-media-dump='zip -r media.zip pub/media --exclude "*pub/media/catalog/product/cache*"'
-alias m2-multi-store-mode="m2-config-set general/single_store_mode/enabled 0 && m2-config-set web/url/use_store 1"
 alias m2-pagebuilder-wizard="cd app/code; pbmodules; cd - > /dev/null"
 alias m2-payment-checkmo-disable="m2-config-set payment/checkmo/active 0"
 alias m2-payment-checkmo-enable="m2-config-set payment/checkmo/active 1"
@@ -438,7 +449,6 @@ alias m2-queue-fix="m2-module-disable Magento_WebapiAsync"
 alias m2-queue-list="m2 qu:co:list"
 alias m2-queue-start="m2 qu:co:start --single-thread"
 alias m2-queue-stop="dc restart rabbitmq"
-alias m2-redis-flush="dc exec redis redis-cli FLUSHALL"
 alias m2-reset-grids="m2 db:query 'delete from ui_bookmark'"
 alias m2-setup-eslint="m2-cli bash -c 'if [ ! -e package.json ] && [ -e package.json.sample ]; then cp package.json{.sample,}; fi; npm install --save-dev eslint eslint-{config-standard,plugin-{import,node,promise,n}}' && echo '{\"extends\":\"standard\",\"rules\":{\"indent\":[\"error\",4]},\"env\":{\"amd\":true,\"browser\":true,\"jquery\":true},\"globals\":{\"Chart\":\"readonly\"},\"ignorePatterns\":[\"**/vendor/magento/*.js\"]}' > .eslintrc"
 alias m2-setup-stylelint="m2-cli bash -c 'if [ ! -e package.json ] && [ -e package.json.sample ]; then cp package.json{.sample,}; fi; npm install --save-dev stylelint{,-order}'"
@@ -446,4 +456,5 @@ alias m2-shipping-flatrate-disable="m2-config-set carriers/flatrate/active 0"
 alias m2-shipping-flatrate-enable="m2-config-set carriers/flatrate/active 1"
 alias m2-shipping-freeshipping-disable="m2-config-set carriers/freeshipping/active 0"
 alias m2-shipping-freeshipping-enable="m2-config-set carriers/freeshipping/active 1"
-alias m2-single-store-mode="m2-config-set general/single_store_mode/enabled 1 && m2-config-set web/url/use_store 0"
+alias m2-store-mode-multi-website="m2-config-set general/single_store_mode/enabled 0 && m2-config-set web/url/use_store 1"
+alias m2-store-mode-single="m2-config-set general/single_store_mode/enabled 1 && m2-config-set web/url/use_store 0"
