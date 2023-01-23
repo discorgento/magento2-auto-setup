@@ -213,12 +213,15 @@ m2-recreate-admin-user() {
 
 m2-cache-warmup() {
   ! m2-check-infra && return 1
+  m2-config-get '' &> /dev/null
   (dm clinotty curl -sLk 172.17.0.1 &) &> var/docker/cache-warmup.html
 }
 
 m2-cache-watch() {
   ! m2-check-infra && return 1
-  dm cache-clean --watch
+
+  m2-cache-watch-stop # kill running processes if any
+  m2-cli /var/www/.composer-global/vendor/bin/cache-clean.js --watch
 }
 
 m2-cache-watch-stop() {
@@ -255,7 +258,13 @@ m2-deploy() {
 
 m2-console() {
   [ -z "$1" ] && m2 dev:con && return 0
-  m2 dev:con --no-ansi "$1; exit" | sed $'s,\x1b\\[[0-9;]*[a-zA-Z],,g' | grep '=>' | sed -e 's/=> //'
+  m2 dev:con "$*"
+}
+
+m2-cron-clean() {
+  echo -n "Truncating $(dg-text-bold cron_schedule) table.. "
+  m2 db:query 'TRUNCATE cron_schedule'
+  echo 'done.'
 }
 
 m2-orders-delete-old() {
@@ -337,7 +346,7 @@ m2-sql-clean-file() {
   echo 'done.'
 }
 
-m2-sql-watch-queries() {
+m2-sql-watch() {
   m2-cli watch -x bin/magerun2 db:query 'SHOW FULL PROCESSLIST'
 }
 
@@ -409,7 +418,11 @@ m2-redis-flush() {
 }
 
 m2-sanitize-sku() {
-  m2-console "\$di->create(Magento\Catalog\Model\Product::class)->formatUrlKey('$*')"
+  m2 dev:con --no-ansi "\$di->create(Magento\Catalog\Model\Product::class)->formatUrlKey('$*'); exit" | sed $'s,\x1b\\[[0-9;]*[a-zA-Z],,g' | grep '=>' | sed -e 's/=> //' | cut -d'"' -f2
+}
+
+m2-sanitize-url-path() {
+  m2-sanitize-sku "$@"
 }
 
 m2-test-class() {
@@ -428,7 +441,6 @@ m2-xdebug-tmp-disable-after() {
 
 # Aliases
 alias m2-apply-catalog-rules='m2 sys:cr:run catalogrule_apply_all'
-alias m2-cron-clean="m2 db:query 'DELETE FROM cron_schedule' && m2 cron:schedule"
 alias m2-cloud-patches-apply="m2-cli ./vendor/bin/ece-patches apply"
 alias m2-cloud-patches-list="vendor/bin/ece-patches status"
 alias m2-cloud-redeploy="m2-cli bash -c 'cloud-deploy && magento-command de:mo:set developer && cloud-post-deploy'"
