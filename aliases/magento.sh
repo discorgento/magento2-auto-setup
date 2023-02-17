@@ -105,7 +105,7 @@ m2-config-set() {
 }
 
 m2-config-get() {
-  m2 dev:con "\$di->create(\Magento\Framework\App\Config\ScopeConfigInterface::class)->getValue('$1');exit" | grep '=>'
+  m2 dev:con "\$di->create(\Magento\Framework\App\Config\ScopeConfigInterface::class)->getValue('$1');exit" | awk '/=/,0'
 }
 
 m2-db-console() {
@@ -171,7 +171,8 @@ m2-post-db-import() {
       path LIKE 'web/secure/%' OR
       path LIKE 'web/unsecure/%' OR
       path IN (
-        'design/head/includes'
+        'design/head/includes',
+        'design/footer/absolute_footer'
       );
   "
 
@@ -182,6 +183,7 @@ m2-post-db-import() {
   m2 cache:enable
   m2 indexer:set-mode schedule
   m2-clean-logs
+  m2-custom-logs-enable
 
   echo -n "Reindexing ($(dg-text-bold optional), skip anytime with Ctrl+C).. "
   m2-reindex-catalog &> var/docker/auto-reindex.log
@@ -221,7 +223,7 @@ m2-cache-watch() {
   ! m2-check-infra && return 1
 
   m2-cache-watch-stop # kill running processes if any
-  m2-cli /var/www/.composer-global/vendor/bin/cache-clean.js --watch
+  dm cache-clean --watch
 }
 
 m2-cache-watch-stop() {
@@ -238,6 +240,19 @@ m2-compile-assets() {
   rm -rf pub/static/{adminhtml,frontend} var/view_preprocessed/pub/static &> /dev/null
   m2 ca:cl full_page
   m2-cache-warmup
+}
+
+m2-custom-logs-enable() {
+  local LOG_FILE_NAME='plugins-and-observers.log'
+
+  # plugins
+  local INTERCEPTOR_FILE_PATH='vendor/magento/framework/Interception/Interceptor.php'
+  if ! grep -q 'function _dgCustomLog' $INTERCEPTOR_FILE_PATH; then sed -i "s/private \$pluginList;/private \$pluginList;\n\n    public static \$lastToLog;\n\n    private function _dgCustomLog(\$pluginInstance, \$pluginMethod, \$method, \$capMethod)\n    {\n        if (str_contains(get_class(\$pluginInstance), 'Magento\\\\\\\\')) {\n            return;\n        }\n\n        \$logFile = fopen(BP . '\/var\/log\/$LOG_FILE_NAME', 'a+');\n        try {\n            \$toLog = get_class(\$pluginInstance) . '@' . \$pluginMethod;\n        } catch (\\\\Throwable \$e) {\n            try {\n                \$toLog = parent::class . '@' . \$method;\n            } catch (\\\\Throwable \$e) {\n            }\n        }\n\n        if (self::\$lastToLog != \$toLog) {\n            \$pluginType = str_replace(\$capMethod, '', \$pluginMethod);\n            fwrite(\$logFile, getmypid() . \"\\t\" . microtime(true) . \"\\t\[P\]\[\$pluginType\]\\t\" . \$toLog . PHP_EOL);\n            self::\$lastToLog = \$toLog;\n        }\n\n        fclose(\$logFile);\n    }/g" $INTERCEPTOR_FILE_PATH; fi
+  if ! grep -q 'this->_dgCustomLog(' $INTERCEPTOR_FILE_PATH; then sed -i "/\$pluginMethod = /a \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \$this->_dgCustomLog(\$pluginInstance, \$pluginMethod, \$method, \$capMethod);" $INTERCEPTOR_FILE_PATH; fi
+
+  # observers
+  local INVOKER_FILE_PATH='vendor/magento/framework/Event/Invoker/InvokerDefault.php'
+  if ! grep -q "$LOG_FILE_NAME" $INVOKER_FILE_PATH; then sed -i "s/\$this->_callObserverMethod(\$object, \$observer);/if (!str_contains(get_class(\$object), 'Magento\\\\\\\\')) {\n            \$logFile = fopen(BP . '\/var\/log\/$LOG_FILE_NAME', 'a+');\n            fwrite(\$logFile, getmypid() . \"\\t\" . microtime(true) . \"\\t[O]\\t\\t\\t\" . get_class(\$object) . PHP_EOL);\n            fclose(\$logFile);\n        }\n\n        \$this->_callObserverMethod(\$object, \$observer);/g" $INVOKER_FILE_PATH; fi
 }
 
 m2-developer-mode() {
@@ -310,7 +325,7 @@ m2-sql-mass-delete() {
   echo "done. Total: $REMAINING"
 
   local BATCH_SIZE
-  BATCH_SIZE=50000
+  BATCH_SIZE=10000
 
   local ITERATIONS
   ITERATIONS=$(bc -q <<< "$REMAINING / $BATCH_SIZE")
