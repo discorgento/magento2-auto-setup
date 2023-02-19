@@ -191,6 +191,33 @@ m2-post-db-import() {
   echo 'done.'
 }
 
+m2-install() {
+  if ! grep -q "magento2.test" /etc/hosts; then
+    echo 'Mapping the magento2.test to your /etc/hosts..'
+    sudo tee -a /etc/hosts <<< "127.0.0.1	::1	magento2.test"
+    echo 'mapped.'
+  fi
+
+  m2 setup:install \
+    --base-url="https://magento2.test/" \
+    --backend-frontname="admin" \
+    --db-host="db" \
+    --db-name="magento" \
+    --db-user="magento" \
+    --db-password="magento" \
+    --admin-firstname="Dev" \
+    --admin-lastname="Team" \
+    --admin-email="dev@discorgento.com" \
+    --admin-user="admin" \
+    --admin-password="Admin123@" \
+    --search-engine="elasticsearch7" \
+    --elasticsearch-host="elasticsearch" \
+    --elasticsearch-port="9200" \
+    --elasticsearch-index-prefix="magento2" \
+    --elasticsearch-timeout="15" \
+    --use-rewrites="1"
+}
+
 m2-grunt() {
   ! m2-check-infra && return 1
   m2-npx grunt "$@"
