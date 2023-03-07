@@ -26,7 +26,7 @@ m2-composer-clone-package() {
 
   # Assure packages integrity
   for PACKAGE in "$@"; do rm -rf "vendor/$PACKAGE"; done
-  c --no-ansi install --no-plugins &> /dev/null
+  c --no-ansi install --ignore-platform-reqs --no-plugins &> /dev/null
 
   local STORE_ROOT_DIR
   STORE_ROOT_DIR=$(pwd)
@@ -36,7 +36,7 @@ m2-composer-clone-package() {
   mkdir -p "$MODULES_DIR"
 
   for PACKAGE in "$@"; do
-    URL=$(c --no-ansi show "$PACKAGE" | grep source | awk '{print $4}')
+    URL=$(c --no-ansi show --ignore-platform-reqs "$PACKAGE" | grep source | awk '{print $4}')
     VENDOR=$(echo "$PACKAGE" | awk -F '/' '{print $1}')
     FOLDER=$(echo "$PACKAGE" | awk -F '/' '{print $2}')
     REPO_DIR="${VENDOR}_${FOLDER}"

@@ -32,23 +32,30 @@ mr2-check-install() {
 }
 
 _m2-get-version-for() {
+  local MAGENTO_PACKAGE
+  MAGENTO_PACKAGE=$([ "$1" = "cloud" ] && echo "magento/magento-cloud-metapackage" || echo "magento/product-$1-edition")
+
   local VERSION
-  VERSION=$(jq -r ".require.\"magento/product-$1-edition\"" composer.json 2> /dev/null)
+  VERSION=$(jq -r ".require.\"$MAGENTO_PACKAGE\"" composer.json 2> /dev/null)
   [ "$VERSION" != "null" ] && echo "$VERSION" || echo ''
 }
 
 m2-version() {
-  local MAGENTO_EE_VERSION
-  MAGENTO_EE_VERSION="$(_m2-get-version-for enterprise)"
-
-  local MAGENTO_CE_VERSION
-  MAGENTO_CE_VERSION="$(_m2-get-version-for community)"
+  declare -A TRY_VERSIONS_MAP
+  TRY_VERSIONS_MAP=(
+    [ee]="$(_m2-get-version-for enterprise)"
+    [ce]="$(_m2-get-version-for community)"
+    [cl]="$(_m2-get-version-for cloud)"
+  )
 
   local VERSION
-  VERSION=$([ -n "$MAGENTO_EE_VERSION" ] && echo "$MAGENTO_EE_VERSION" || echo "$MAGENTO_CE_VERSION")
+  for TRY_VERSION in "${TRY_VERSIONS_MAP[@]}"; do
+    [ -n "$TRY_VERSION" ] && VERSION="$TRY_VERSION"
+  done
+
   [ -z "$VERSION" ] && _dg-msg-error 'This command must be executed on the store root folder.' && return 1
 
-  echo "$VERSION"
+  echo "${VERSION//[^0-9|\.|p|-]/}"
 }
 
 m2-bash() {
@@ -116,7 +123,8 @@ m2-db-dump() {
   m2 db:dump -c gzip --strip="@stripped" -n
 }
 
-m2-db-import() {
+m2-db-import() { (
+  set -e
   local DUMP_FILE_NAME
   DUMP_FILE_NAME=$(basename "$1")
 
@@ -151,9 +159,11 @@ m2-db-import() {
   m2-post-db-import
 
   m2-xdebug-tmp-disable-after
-}
+); }
 
-m2-post-db-import() {
+m2-post-db-import() { (
+  set -e
+
   m2 db:query "
     TRUNCATE adminnotification_inbox;
 
@@ -189,21 +199,30 @@ m2-post-db-import() {
   m2-reindex-catalog &> var/docker/auto-reindex.log
   m2-reindex-invalid &>> var/docker/auto-reindex.log
   echo 'done.'
-}
+); }
 
-m2-install() {
+m2-install() { (
+  set -e
+  ! m2-check-infra && return 1
+
   if ! grep -q "magento2.test" /etc/hosts; then
     echo 'Mapping the magento2.test to your /etc/hosts..'
     sudo tee -a /etc/hosts <<< "127.0.0.1	::1	magento2.test"
     echo 'mapped.'
   fi
 
+  local DB_ENV_PATH=../env/db.env
+  [ ! -e $DB_ENV_PATH ] && _dg-msg-error "Database env vars not found ($DB_ENV_PATH)" && exit
+  # shellcheck disable=SC1090
+  source "$DB_ENV_PATH"
+  dm clinotty mysql -h"${MYSQL_HOST}" -u"${MYSQL_USER}" -p"${MYSQL_PASSWORD}" <<< 'CREATE DATABASE IF NOT EXISTS magento'
+
   m2 setup:install \
     --base-url="https://magento2.test/" \
     --backend-frontname="admin" \
     --db-host="db" \
     --db-name="magento" \
-    --db-user="magento" \
+    --db-user="root" \
     --db-password="magento" \
     --admin-firstname="Dev" \
     --admin-lastname="Team" \
@@ -215,8 +234,11 @@ m2-install() {
     --elasticsearch-port="9200" \
     --elasticsearch-index-prefix="magento2" \
     --elasticsearch-timeout="15" \
-    --use-rewrites="1"
-}
+    --use-rewrites="1" \
+    "$@"
+
+  m2-post-db-import
+); }
 
 m2-grunt() {
   ! m2-check-infra && return 1
@@ -242,8 +264,8 @@ m2-recreate-admin-user() {
 
 m2-cache-warmup() {
   ! m2-check-infra && return 1
-  m2-config-get '' &> /dev/null
-  (dm clinotty curl -sLk 172.17.0.1 &) &> var/docker/cache-warmup.html
+  (m2-config-get '' &) &> /dev/null
+  (curl -Lk localhost &) &> var/docker/cache-warmup.html
 }
 
 m2-cache-watch() {
@@ -390,6 +412,14 @@ m2-sql-clean-file() {
 
 m2-sql-watch() {
   m2-cli watch -x bin/magerun2 db:query 'SHOW FULL PROCESSLIST'
+}
+
+m2-unit-test() {
+  docker exec -it \
+    -e XDEBUG_CONFIG='idekey=phpstorm log_level=0' \
+    "$(dc ps -q phpfpm)" \
+    ./vendor/bin/phpunit -c dev/tests/unit/phpunit.xml.dist \
+    "$@"
 }
 
 m2-xdebug-is-enabled() {
