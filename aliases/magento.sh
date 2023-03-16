@@ -240,6 +240,12 @@ m2-install() { (
   m2-post-db-import
 ); }
 
+m2-rebuild-indexes() {
+  m2-elasticsearch-flush
+  m2 in:reset
+  m2-reindex
+}
+
 m2-grunt() {
   ! m2-check-infra && return 1
   m2-npx grunt "$@"
@@ -423,7 +429,8 @@ m2-unit-test() {
 }
 
 m2-xdebug-is-enabled() {
-  [ "$(dm xdebug status)" = 'Xdebug debug mode is enabled.' ] && echo 1 || return 0
+  [ "$(dm xdebug status)" = 'Xdebug debug mode is enabled.' ] && echo 1
+  return 0
 }
 
 m2-xdebug-enable() {
@@ -504,6 +511,7 @@ m2-test-class() {
 m2-xdebug-tmp-disable-before() {
   M2_HANDLE_XDEBUG="$(m2-xdebug-is-enabled)"
   [ "$M2_HANDLE_XDEBUG" ] && m2-xdebug-disable
+  return 0
 }
 
 m2-xdebug-tmp-disable-after() {
@@ -540,5 +548,5 @@ alias m2-shipping-flatrate-disable="m2-config-set carriers/flatrate/active 0"
 alias m2-shipping-flatrate-enable="m2-config-set carriers/flatrate/active 1"
 alias m2-shipping-freeshipping-disable="m2-config-set carriers/freeshipping/active 0"
 alias m2-shipping-freeshipping-enable="m2-config-set carriers/freeshipping/active 1"
-alias m2-store-mode-multi-website="m2-config-set general/single_store_mode/enabled 0 && m2-config-set web/url/use_store 1"
-alias m2-store-mode-single="m2-config-set general/single_store_mode/enabled 1 && m2-config-set web/url/use_store 0"
+alias m2-multiwebsite-mode="m2-config-set general/single_store_mode/enabled 0 && m2-config-set web/url/use_store 1"
+alias m2-single-store-mode="m2-config-set general/single_store_mode/enabled 1 && m2-config-set web/url/use_store 0"
