@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ## Composer
-m2-composer() {
+c() {
   ! m2-check-infra && return 1
   m2-xdebug-tmp-disable-before
   m2-cache-watch-stop
@@ -15,13 +15,12 @@ m2-composer() {
     echo 'done.'
   fi
 
-  dm composer "$@"
+  m2-cli php -d memory_limit=-1 /usr/local/bin/composer "$@"
 
   m2-xdebug-tmp-disable-after
 }
-alias c="m2-composer"
 
-m2-composer-clone-package() {
+c-clone-package() {
   ! m2-is-store-root-folder && return 1
 
   # Assure packages integrity
@@ -52,9 +51,8 @@ m2-composer-clone-package() {
     echo 'done.'
   done
 }
-alias c-clone-package="m2-composer-clone-package"
 
-m2-composer-update-cloned-packages() {
+c-update-cloned-packages() {
   ! m2-is-store-root-folder && return 1
 
   [ ! -d var/modules/ ] && echo 'No packages cloned yet.' && return 1
@@ -70,4 +68,7 @@ m2-composer-update-cloned-packages() {
     echo 'done'
   done
 }
-alias c-update-cloned-packages="m2-composer-update-cloned-packages"
+
+c1-install() {
+  m2-root bash -c 'composer self-update --1'
+}

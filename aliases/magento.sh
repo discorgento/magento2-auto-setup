@@ -19,6 +19,7 @@ m2-is-store-root-folder() {
 m2-check-infra() {
   ! m2-is-store-root-folder && return 1
   ! dc ps --status=running -q phpfpm &> /dev/null && m2-start
+  mkdir -p var/docker
 
   return 0
 }
@@ -164,6 +165,7 @@ m2-db-import() { (
 m2-post-db-import() { (
   set -e
 
+  echo -n 'Cleaning up the database.. '
   m2 db:query "
     TRUNCATE adminnotification_inbox;
 
@@ -185,13 +187,22 @@ m2-post-db-import() { (
         'design/footer/absolute_footer'
       );
   "
+  echo 'done.'
 
   m2 se:up
   m2-cache-warmup
   m2-recreate-admin-user
   m2-grids-slim # needs to be after admin user creation
-  m2 cache:enable
-  m2 indexer:set-mode schedule
+  m2-disable-2fa
+
+  echo -n 'Enabling all caches.. '
+  m2 cache:enable &> var/docker/output.txt
+  echo 'done.'
+
+  echo -n 'Optimizing indexers.. '
+  m2 indexer:set-mode schedule &> var/docker/output.txt
+  echo 'done.'
+
   m2-clean-logs
   m2-custom-logs-enable
 
@@ -241,10 +252,29 @@ m2-install() { (
 ); }
 
 m2-rebuild-indexes() {
-  m2-elasticsearch-flush
+  m2-es-flush
   m2 in:reset
   m2-reindex
 }
+
+m2-es-dump() { (
+  set -e
+
+  local OUTPUT_TMP_DIR=.elasticdump.tmp
+  local OUTPUT_FILE=elasticdump.zip
+
+  [ -e "$OUTPUT_FILE" ] && rm $OUTPUT_FILE
+  [ -d "$OUTPUT_TMP_DIR" ] && rm $OUTPUT_TMP_DIR
+  mkdir -p $OUTPUT_TMP_DIR
+
+  multielasticdump --direction=dump \
+    --match='^.*$' \
+    --input=http://localhost:9200 \
+    --output=$OUTPUT_TMP_DIR
+
+  zip -r $OUTPUT_FILE "$OUTPUT_TMP_DIR"/*.json
+  rm $OUTPUT_TMP_DIR
+); }
 
 m2-grunt() {
   ! m2-check-infra && return 1
@@ -264,8 +294,10 @@ m2-grids-slim() {
 }
 
 m2-recreate-admin-user() {
-  m2 adm:us:del admin -f &> /dev/null
-  m2 adm:us:cr --admin-firstname=Admin --admin-lastname=Magento --admin-email=dev@mycompany.com --admin-user=admin --admin-password=Admin123@
+  echo -n 'Making sure admin user exists.. '
+  m2 adm:us:del admin -f &> var/docker/output.txt || echo -n ''
+  m2 adm:us:cr --admin-firstname=Admin --admin-lastname=Magento --admin-email=dev@mycompany.com --admin-user=admin --admin-password=Admin123@ &> var/docker/output.txt
+  echo 'done.'
 }
 
 m2-cache-warmup() {
@@ -323,7 +355,7 @@ m2-deploy() {
   m2-compile-assets
   m2 se:up
   m2 se:di:co
-  m2 se:st:deploy -j 4
+  m2 se:st:deploy
 }
 
 m2-console() {
@@ -335,6 +367,10 @@ m2-cron-clean() {
   echo -n "Truncating $(dg-text-bold cron_schedule) table.. "
   m2 db:query 'TRUNCATE cron_schedule'
   echo 'done.'
+}
+
+m2-disable-2fa() {
+  m2-module-disable Magento_TwoFactorAuth Magento_AdminAdobeImsTwoFactorAuth
 }
 
 m2-orders-delete-old() {
@@ -480,6 +516,27 @@ m2-module-enable() {
   m2-cache-warmup
 }
 
+m2-nvm-install() {
+  echo -n 'Installing yarn.. '
+  m2-root bash -c 'npm i --global yarn &> var/docker/nvm-install.log'
+  echo 'done.'
+
+  echo -n 'Installing nvm.. '
+  m2-cli bash -c 'curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.3/install.sh | bash'
+  echo 'done.'
+
+  # shellcheck disable=SC2016
+  m2-cli bash -c 'echo "\
+#!/bin/bash
+export NVM_DIR=\"\$HOME/.nvm\"
+[ -s \"\$NVM_DIR/nvm.sh\" ] && \. \"\$NVM_DIR/nvm.sh\" # This loads nvm
+" > ~/.bashrc'
+}
+
+m2-nvm-use() {
+  m2-cli bash -ic "nvm install $1 && nvm use $1"
+}
+
 m2-npm() {
   m2-cli npm "$@"
 }
@@ -525,9 +582,8 @@ alias m2-cloud-patches-apply="m2-cli ./vendor/bin/ece-patches apply"
 alias m2-cloud-patches-list="vendor/bin/ece-patches status"
 alias m2-cloud-redeploy="m2-cli bash -c 'cloud-deploy && magento-command de:mo:set developer && cloud-post-deploy'"
 alias m2-delete-disabled-products="m2 db:query 'DELETE cpe FROM catalog_product_entity cpe JOIN catalog_product_entity_int cpei ON cpei.entity_id = cpe.entity_id AND attribute_id = (SELECT attribute_id FROM eav_attribute WHERE attribute_code = \"status\" AND entity_type_id = (SELECT entity_type_id FROM eav_entity_type WHERE entity_type_code = \"catalog_product\")) WHERE cpei.value = 2'"
-alias m2-disable-2fa="m2-module-disable Magento_TwoFactorAuth"
 alias m2-disable-captchas="m2-config-set customer/captcha/enable 0 && m2-config-set admin/captcha/enable 0"
-alias m2-elasticsearch-flush="curl -X DELETE 'http://localhost:9200/_all'"
+alias m2-es-flush="curl -X DELETE 'http://localhost:9200/_all'"
 alias m2-fix-missing-admin-role="m2 db:query \"INSERT INTO authorization_role (role_id, parent_id, tree_level, sort_order, role_type, user_id, user_type, role_name) VALUES (1, 0, 1, 1, 'G', 0, '2', 'Administrators'); INSERT INTO authorization_rule (rule_id, role_id, resource_id, privileges, permission) VALUES (1, 1, 'Magento_Backend::all', null, 'allow')\""
 alias m2-generate-db-whitelist="m2 setup:db-declaration:generate-whitelist --module-name"
 alias m2-generate-xml-autocomplete="m2 dev:urn-catalog:generate xsd_catalog_raw.xml"
@@ -548,5 +604,7 @@ alias m2-shipping-flatrate-disable="m2-config-set carriers/flatrate/active 0"
 alias m2-shipping-flatrate-enable="m2-config-set carriers/flatrate/active 1"
 alias m2-shipping-freeshipping-disable="m2-config-set carriers/freeshipping/active 0"
 alias m2-shipping-freeshipping-enable="m2-config-set carriers/freeshipping/active 1"
-alias m2-multiwebsite-mode="m2-config-set general/single_store_mode/enabled 0 && m2-config-set web/url/use_store 1"
+alias m2-shipping-shipperhq-disable="m2-config-set carriers/shqserver/active 1"
+alias m2-shipping-shipperhq-enable="m2-config-set carriers/shqserver/active 0"
+alias m2-multi-store-mode="m2-config-set general/single_store_mode/enabled 0 && m2-config-set web/url/use_store 1"
 alias m2-single-store-mode="m2-config-set general/single_store_mode/enabled 1 && m2-config-set web/url/use_store 0"
