@@ -6,9 +6,18 @@ m2() {
   mr2-check-install
 
   d exec -it -e XDEBUG_CONFIG='idekey=phpstorm log_level=0' "$(dc ps -q phpfpm)" \
-    php -d memory_limit=-1 -d display_errors=0 \
+    php -d memory_limit=-1 \
     bin/magerun2 --skip-root-check --skip-magento-compatibility-check \
     "$@"
+}
+
+m2-native() {
+  ! m2-check-infra && return 1
+  mr2-check-install
+
+  d exec -it -e XDEBUG_CONFIG='idekey=phpstorm log_level=0' "$(dc ps -q phpfpm)" \
+    php -d memory_limit=-1 \
+    bin/magento "$@"
 }
 
 m2-is-store-root-folder() {
@@ -80,7 +89,7 @@ m2-root() {
 m2-start() {
   ! m2-is-store-root-folder && return 1
 
-  [ -d var/docker ] && rm var/docker -rf
+  [ -d var/docker ] && trash-put var/docker
   mkdir -p var/docker
 
   d-stop-all
@@ -130,7 +139,7 @@ m2-db-import() { (
   DUMP_FILE_NAME=$(basename "$1")
 
   if [ ! -e "./$1" ]; then
-    echo "File \"$DUMP_FILE_NAME\" not found. Make sure it is on the store root folder and try again."
+    echo "File '$DUMP_FILE_NAME' not found. Make sure it is on the store root folder and try again."
     return 1
   fi
 
@@ -181,19 +190,15 @@ m2-post-db-import() { (
       path LIKE 'smtp/%' OR
       path LIKE 'web/cookie%' OR
       path LIKE 'web/secure/%' OR
-      path LIKE 'web/unsecure/%' OR
-      path IN (
-        'design/head/includes',
-        'design/footer/absolute_footer'
-      );
+      path LIKE 'web/unsecure/%';
   "
   echo 'done.'
 
   m2 se:up
   m2-cache-warmup
   m2-recreate-admin-user
-  m2-grids-slim # needs to be after admin user creation
-  m2-disable-2fa
+  m2-grids-slim || echo -n '' # needs to be after admin user creation
+  m2-disable-2fa || echo -n ''
 
   echo -n 'Enabling all caches.. '
   m2 cache:enable &> var/docker/output.txt
@@ -207,8 +212,7 @@ m2-post-db-import() { (
   m2-custom-logs-enable
 
   echo -n "Reindexing ($(dg-text-bold optional), skip anytime with Ctrl+C).. "
-  m2-reindex-catalog &> var/docker/auto-reindex.log
-  m2-reindex-invalid &>> var/docker/auto-reindex.log
+  m2-reindex &> var/docker/reindex.log
   echo 'done.'
 ); }
 
@@ -228,7 +232,7 @@ m2-install() { (
   source "$DB_ENV_PATH"
   dm clinotty mysql -h"${MYSQL_HOST}" -u"${MYSQL_USER}" -p"${MYSQL_PASSWORD}" <<< 'CREATE DATABASE IF NOT EXISTS magento'
 
-  m2 setup:install \
+  m2-native setup:install \
     --base-url="https://magento2.test/" \
     --backend-frontname="admin" \
     --db-host="db" \
@@ -260,6 +264,7 @@ m2-rebuild-indexes() {
 m2-es-dump() { (
   set -e
 
+  local DEFAULT_HOST='localhost:9200'
   local OUTPUT_TMP_DIR=.elasticdump.tmp
   local OUTPUT_FILE=elasticdump.zip
 
@@ -269,7 +274,7 @@ m2-es-dump() { (
 
   multielasticdump --direction=dump \
     --match='^.*$' \
-    --input=http://localhost:9200 \
+    --input="http://${1:-$DEFAULT_HOST}" \
     --output=$OUTPUT_TMP_DIR
 
   zip -r $OUTPUT_FILE "$OUTPUT_TMP_DIR"/*.json
@@ -324,7 +329,7 @@ m2-clean-logs() {
 }
 
 m2-compile-assets() {
-  rm -rf pub/static/{adminhtml,frontend} var/view_preprocessed/pub/static &> /dev/null
+  trash-put pub/static/{adminhtml,frontend} var/view_preprocessed/pub/static &> /dev/null
   m2 ca:cl full_page
   m2-cache-warmup
 }
@@ -370,7 +375,8 @@ m2-cron-clean() {
 }
 
 m2-disable-2fa() {
-  m2-module-disable Magento_TwoFactorAuth Magento_AdminAdobeImsTwoFactorAuth
+  m2 mod:dis Magento_AdminAdobeImsTwoFactorAuth 1> /dev/null
+  m2 mod:dis Magento_TwoFactorAuth
 }
 
 m2-orders-delete-old() {
@@ -529,7 +535,7 @@ m2-nvm-install() {
   m2-cli bash -c 'echo "\
 #!/bin/bash
 export NVM_DIR=\"\$HOME/.nvm\"
-[ -s \"\$NVM_DIR/nvm.sh\" ] && \. \"\$NVM_DIR/nvm.sh\" # This loads nvm
+[ -s \"\$NVM_DIR/nvm.sh\" ] && source \"\$NVM_DIR/nvm.sh\" # This loads nvm
 " > ~/.bashrc'
 }
 
@@ -551,6 +557,7 @@ m2-redis-console() {
 
 m2-redis-flush() {
   m2-redis-console FLUSHALL
+  m2-cache-warmup
 }
 
 m2-sanitize-sku() {
@@ -604,7 +611,7 @@ alias m2-shipping-flatrate-disable="m2-config-set carriers/flatrate/active 0"
 alias m2-shipping-flatrate-enable="m2-config-set carriers/flatrate/active 1"
 alias m2-shipping-freeshipping-disable="m2-config-set carriers/freeshipping/active 0"
 alias m2-shipping-freeshipping-enable="m2-config-set carriers/freeshipping/active 1"
-alias m2-shipping-shipperhq-disable="m2-config-set carriers/shqserver/active 1"
-alias m2-shipping-shipperhq-enable="m2-config-set carriers/shqserver/active 0"
+alias m2-shipping-shipperhq-disable="m2-config-set carriers/shqserver/active 0"
+alias m2-shipping-shipperhq-enable="m2-config-set carriers/shqserver/active 1"
 alias m2-multi-store-mode="m2-config-set general/single_store_mode/enabled 0 && m2-config-set web/url/use_store 1"
 alias m2-single-store-mode="m2-config-set general/single_store_mode/enabled 1 && m2-config-set web/url/use_store 0"
