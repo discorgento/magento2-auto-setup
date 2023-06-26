@@ -5,7 +5,7 @@ m2() {
   ! m2-check-infra && return 1
   mr2-check-install
 
-  d exec -it -e XDEBUG_CONFIG='idekey=phpstorm log_level=0' "$(dc ps -q phpfpm)" \
+  d exec -it -e XDEBUG_CONFIG='idekey=phpstorm' "$(dc ps -q phpfpm)" \
     php -d memory_limit=-1 \
     bin/magerun2 --skip-root-check --skip-magento-compatibility-check \
     "$@"
@@ -15,7 +15,7 @@ m2-native() {
   ! m2-check-infra && return 1
   mr2-check-install
 
-  d exec -it -e XDEBUG_CONFIG='idekey=phpstorm log_level=0' "$(dc ps -q phpfpm)" \
+  d exec -it -e XDEBUG_CONFIG='idekey=phpstorm' "$(dc ps -q phpfpm)" \
     php -d memory_limit=-1 \
     bin/magento "$@"
 }
@@ -94,6 +94,7 @@ m2-start() {
 
   d-stop-all
   dm start
+  dc exec rabbitmq rabbitmqctl set_vm_memory_high_watermark absolute 3G
 
   m2-cache-warmup
 }
@@ -152,16 +153,26 @@ m2-db-import() { (
     echo 'done.'
   fi
 
-  m2 db:dr -f
-  m2 db:cr
+  local DB_NAME
+  # shellcheck disable=SC2016
+  DB_NAME=$(php -r '$env = include("app/etc/env.php");echo $env["db"]["connection"]["default"]["dbname"];')
+
+  sed -i 's/MYSQL_USER=magento/MYSQL_USER=root/' ../env/db.env
+  # shellcheck disable=SC1091
+  source '../env/db.env'
+
+  echo -n "Recreating ${_DG_BOLD}$DB_NAME${_DG_UNFORMAT} database.. "
+  dm clinotty mysql -h"${MYSQL_HOST}" -u"${MYSQL_USER}" -p"${MYSQL_PASSWORD}" <<< \
+    "DROP DATABASE IF EXISTS $DB_NAME; CREATE DATABASE $DB_NAME;"
+  echo 'done.'
 
   local DUMP_FILE_EXTENSION
   DUMP_FILE_EXTENSION="${DUMP_FILE_NAME##*.}"
 
   setterm --cursor off
   case "$DUMP_FILE_EXTENSION" in
-    sql) m2 db:im "$DUMP_FILE_NAME" ;;
-    gz) m2 db:im -c gzip "$DUMP_FILE_NAME" ;;
+    sql) pv "$DUMP_FILE_NAME" | dm mysql ;;
+    gz) pv "$DUMP_FILE_NAME" | gunzip -c | dm mysql ;;
     *) echo -e "Dump file type is not supported." && return 1 ;;
   esac
   setterm --cursor on
@@ -339,7 +350,7 @@ m2-custom-logs-enable() {
 
   # plugins
   local INTERCEPTOR_FILE_PATH='vendor/magento/framework/Interception/Interceptor.php'
-  if ! grep -q 'function _dgCustomLog' $INTERCEPTOR_FILE_PATH; then sed -i "s/private \$pluginList;/private \$pluginList;\n\n    public static \$lastToLog;\n\n    private function _dgCustomLog(\$pluginInstance, \$pluginMethod, \$method, \$capMethod)\n    {\n        if (str_contains(get_class(\$pluginInstance), 'Magento\\\\\\\\')) {\n            return;\n        }\n\n        \$logFile = fopen(BP . '\/var\/log\/$LOG_FILE_NAME', 'a+');\n        try {\n            \$toLog = get_class(\$pluginInstance) . '@' . \$pluginMethod;\n        } catch (\\\\Throwable \$e) {\n            try {\n                \$toLog = parent::class . '@' . \$method;\n            } catch (\\\\Throwable \$e) {\n            }\n        }\n\n        if (self::\$lastToLog != \$toLog) {\n            \$pluginType = str_replace(\$capMethod, '', \$pluginMethod);\n            fwrite(\$logFile, getmypid() . \"\\t\" . microtime(true) . \"\\t\[P\]\[\$pluginType\]\\t\" . \$toLog . PHP_EOL);\n            self::\$lastToLog = \$toLog;\n        }\n\n        fclose(\$logFile);\n    }/g" $INTERCEPTOR_FILE_PATH; fi
+  if ! grep -q 'function _dgCustomLog' $INTERCEPTOR_FILE_PATH; then sed -i "s/private \$pluginList;/private \$pluginList;\n\n    public static \$_lastToLog;\n\n    private function _dgCustomLog(\$pluginInstance, \$pluginMethod, \$method, \$capMethod)\n    {\n        if (str_contains(get_class(\$pluginInstance), 'Magento\\\\\\\\')) {\n            return;\n        }\n\n        \$logFile = fopen(BP . '\/var\/log\/$LOG_FILE_NAME', 'a+');\n        try {\n            \$toLog = get_class(\$pluginInstance) . '@' . \$pluginMethod;\n        } catch (\\\\Throwable \$e) {\n            try {\n                \$toLog = parent::class . '@' . \$method;\n            } catch (\\\\Throwable \$e) {\n            }\n        }\n\n        if (self::\$_lastToLog != \$toLog) {\n            \$pluginType = str_replace(\$capMethod, '', \$pluginMethod);\n            fwrite(\$logFile, getmypid() . \"\\t\" . microtime(true) . \"\\t\[P\]\[\$pluginType\]\\t\" . \$toLog . PHP_EOL);\n            self::\$_lastToLog = \$toLog;\n        }\n\n        fclose(\$logFile);\n    }/g" $INTERCEPTOR_FILE_PATH; fi
   if ! grep -q 'this->_dgCustomLog(' $INTERCEPTOR_FILE_PATH; then sed -i "/\$pluginMethod = /a \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \ \$this->_dgCustomLog(\$pluginInstance, \$pluginMethod, \$method, \$capMethod);" $INTERCEPTOR_FILE_PATH; fi
 
   # observers
@@ -401,6 +412,8 @@ m2-orders-delete-old() {
 }
 
 m2-reindex() {
+  m2 indexer:set-mode schedule
+  m2 indexer:reset
   m2 indexer:reindex
 }
 
@@ -464,7 +477,7 @@ m2-sql-watch() {
 
 m2-unit-test() {
   docker exec -it \
-    -e XDEBUG_CONFIG='idekey=phpstorm log_level=0' \
+    -e XDEBUG_CONFIG='idekey=phpstorm' \
     "$(dc ps -q phpfpm)" \
     ./vendor/bin/phpunit -c dev/tests/unit/phpunit.xml.dist \
     "$@"
@@ -551,12 +564,16 @@ m2-npx() {
   m2-cli npx --yes "$@"
 }
 
-m2-redis-console() {
+m2-mysql-cli() {
+  dm mysql
+}
+
+m2-redis-cli() {
   dc exec -it redis redis-cli "$@"
 }
 
 m2-redis-flush() {
-  m2-redis-console FLUSHALL
+  m2-redis-cli FLUSHALL
   m2-cache-warmup
 }
 

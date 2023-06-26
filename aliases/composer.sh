@@ -19,31 +19,31 @@ c() {
 c-clone-package() {
   ! m2-is-store-root-folder && return 1
 
-  # Assure packages integrity
-  for PACKAGE in "$@"; do trash-put "vendor/$PACKAGE"; done
-  c --no-ansi install --no-plugins &> /dev/null
-
   local STORE_ROOT_DIR
   STORE_ROOT_DIR=$(pwd)
   local MODULES_DIR="${STORE_ROOT_DIR}/var/modules"
   local VENDOR_DIR="${STORE_ROOT_DIR}/vendor"
+  local LOG_FILE="${STORE_ROOT_DIR}/var/log/composer-clone-package.txt"
 
   mkdir -p "$MODULES_DIR"
 
   for PACKAGE in "$@"; do
-    URL=$(c --no-ansi show "$PACKAGE" | grep source | awk '{print $4}')
+    echo '==================================================' &>> "$LOG_FILE"
+    echo "$PACKAGE" &>> "$LOG_FILE"
+
+    URL=$(jq -r ".packages[] | select(.name | strings | test(\"$PACKAGE\")) | .source.url" composer.lock)
     VENDOR=$(echo "$PACKAGE" | awk -F '/' '{print $1}')
     FOLDER=$(echo "$PACKAGE" | awk -F '/' '{print $2}')
     REPO_DIR="${VENDOR}_${FOLDER}"
     CLONED_DIR="$MODULES_DIR/$REPO_DIR"
 
     echo -n "Cloning the package ${_DG_BOLD}$PACKAGE${_DG_UNFORMAT}.. "
-    git clone "$URL" "$CLONED_DIR" &> "${STORE_ROOT_DIR}/var/docker/output.txt"
+    git clone "$URL" "$CLONED_DIR" &>> "$LOG_FILE"
     echo -n 'linking.. '
     cd "${VENDOR_DIR}/${VENDOR}" || return
-    trash-put "$FOLDER" &> "${STORE_ROOT_DIR}/var/docker/output.txt"
-    ln -sv "../../var/modules/$REPO_DIR" "$FOLDER" &> "${STORE_ROOT_DIR}/var/docker/output.txt"
-    cd - &> "${STORE_ROOT_DIR}/var/docker/output.txt" || return
+    trash-put "$FOLDER" &>> "$LOG_FILE"
+    ln -sv "../../var/modules/$REPO_DIR" "$FOLDER" &>> "$LOG_FILE"
+    cd - &>> "$LOG_FILE" || return
     echo 'done.'
   done
 }
