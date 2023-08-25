@@ -7,7 +7,7 @@ m2() {
 
   d exec -it -e XDEBUG_CONFIG='idekey=phpstorm' "$(dc ps -q phpfpm)" \
     php -d memory_limit=-1 \
-    bin/magerun2 --skip-root-check --skip-magento-compatibility-check \
+    bin/n98-magerun2 --skip-root-check --skip-magento-compatibility-check \
     "$@"
 }
 
@@ -34,10 +34,10 @@ m2-check-infra() {
 }
 
 mr2-check-install() {
-  [ -e bin/magerun2 ] && return 0
+  [ -e bin/n98-magerun2 ] && return 0
 
   echo -n "Installing ${_DG_BOLD}Magerun2${_DG_UNFORMAT}.. "
-  m2-cli bash -c 'curl https://files.magerun.net/n98-magerun2.phar --output bin/magerun2 && chmod +x bin/magerun2' &> var/docker/magerun2.log
+  m2-cli bash -c 'curl https://files.magerun.net/n98-magerun2.phar --output bin/n98-magerun2 && chmod +x bin/n98-magerun2' &> var/docker/magerun2.log
   echo 'done.'
 }
 
@@ -73,7 +73,7 @@ m2-bash() {
 }
 
 m2-biggest-tables() {
-  m2 db:query "SELECT table_schema as 'Database', table_name AS 'Table', round(((data_length + index_length) / 1024 / 1024), 2) 'Size in MB' FROM information_schema.TABLES ORDER BY (data_length + index_length) DESC LIMIT ${1:-10};"
+  m2 db:query "SELECT table_schema as 'Database', table_name AS 'Table', round(((data_length + index_length) / 1024 / 1024), 2) 'Size in MB' FROM information_schema.TABLES ORDER BY (data_length + index_length) DESC LIMIT 10;"
 }
 
 m2-cli() {
@@ -94,8 +94,9 @@ m2-start() {
 
   d-stop-all
   dm start
-  dc exec rabbitmq rabbitmqctl set_vm_memory_high_watermark absolute 3G
+  dc exec rabbitmq rabbitmqctl set_vm_memory_high_watermark absolute 3G &>> var/docker/rabbitmq.log
 
+  m2-clean-logs
   m2-cache-warmup
 }
 
@@ -124,10 +125,6 @@ m2-config-set() {
 
 m2-config-get() {
   m2 dev:con "\$di->create(\Magento\Framework\App\Config\ScopeConfigInterface::class)->getValue('$1');exit" | awk '/=/,0'
-}
-
-m2-db-console() {
-  m2 db:co
 }
 
 m2-db-dump() {
@@ -182,6 +179,14 @@ m2-db-import() { (
   m2-xdebug-tmp-disable-after
 ); }
 
+m2-db-console() {
+  m2 db:co
+}
+
+m2-db-search-column() {
+  m2 db:query "SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME FROM information_schema.columns WHERE column_name LIKE '%$1%'" | sed "s/\t/ /g" | column -t
+}
+
 m2-post-db-import() { (
   set -e
 
@@ -203,6 +208,8 @@ m2-post-db-import() { (
       path LIKE 'web/secure/%' OR
       path LIKE 'web/unsecure/%';
   "
+  m2-fix-missing-admin-role
+  m2-sever-integrations
   echo 'done.'
 
   m2 se:up
@@ -212,18 +219,19 @@ m2-post-db-import() { (
   m2-disable-2fa || echo -n ''
 
   echo -n 'Enabling all caches.. '
-  m2 cache:enable &> var/docker/output.txt
+  m2 cache:enable &> var/docker.log
   echo 'done.'
 
   echo -n 'Optimizing indexers.. '
-  m2 indexer:set-mode schedule &> var/docker/output.txt
+  m2 indexer:set-mode schedule &> var/docker.log
   echo 'done.'
 
   m2-clean-logs
   m2-custom-logs-enable
 
-  echo -n "Reindexing ($(dg-text-bold optional), skip anytime with Ctrl+C).. "
-  m2-reindex &> var/docker/reindex.log
+  echo -n "Reindexing pending stuff.. "
+  m2-es-flush
+  m2-reindex-pending &> var/docker.log
   echo 'done.'
 ); }
 
@@ -266,6 +274,15 @@ m2-install() { (
   m2-post-db-import
 ); }
 
+m2-sample-data-install() {
+  m2 sampledata:deploy
+  m2 setup:upgrade
+}
+
+m2-sample-data-remove() {
+  m2 sampledata:remove
+}
+
 m2-rebuild-indexes() {
   m2-es-flush
   m2 in:reset
@@ -297,6 +314,24 @@ m2-grunt() {
   m2-npx grunt "$@"
 }
 
+m2-sever-integrations() {
+  m2 db:query '
+    DELETE FROM core_config_data
+    WHERE
+      path LIKE "%/password"
+      OR path LIKE "%_password"
+      OR path LIKE "%/key"
+      OR path LIKE "%_key"
+      OR path LIKE "%api_key"
+      OR path LIKE "%apikey"
+      OR path LIKE "%/token"
+      OR path LIKE "%_token"
+      OR path LIKE "%/passcode"
+      OR path LIKE "%_passcode"
+      OR path LIKE "%/%/%key"
+  '
+}
+
 m2-grids-slim() {
   m2 db:query "
     # Lean admin grids
@@ -309,10 +344,18 @@ m2-grids-slim() {
   "
 }
 
+m2-fix-missing-admin-role() {
+  m2 db:query "
+    DELETE FROM authorization_role;
+    INSERT INTO authorization_role (role_id, parent_id, tree_level, sort_order, role_type, user_id, user_type, role_name) VALUES (1, 0, 1, 1, 'G', 0, '2', 'Administrators');
+    INSERT INTO authorization_rule (rule_id, role_id, resource_id, privileges, permission) VALUES (1, 1, 'Magento_Backend::all', null, 'allow')
+  "
+}
+
 m2-recreate-admin-user() {
   echo -n 'Making sure admin user exists.. '
-  m2 adm:us:del admin -f &> var/docker/output.txt || echo -n ''
-  m2 adm:us:cr --admin-firstname=Admin --admin-lastname=Magento --admin-email=dev@mycompany.com --admin-user=admin --admin-password=Admin123@ &> var/docker/output.txt
+  m2 adm:us:del admin -f &> var/docker.log || echo -n ''
+  m2 adm:us:cr --admin-firstname=Admin --admin-lastname=Magento --admin-email=dev@mycompany.com --admin-user=admin --admin-password=Admin123@ &> var/docker.log || echo -n ''
   echo 'done.'
 }
 
@@ -421,13 +464,14 @@ m2-reindex-catalog() {
   m2 indexer:reindex catalog_{category_product,product_category,product_price} cataloginventory_stock
 }
 
-m2-reindex-invalid() {
+m2-reindex-pending() {
+  m2 sy:cr:run indexer_update_all_views
   m2 sy:cr:run indexer_reindex_all_invalid
 }
 
 m2-sql-mass-delete() {
-  [ -z "$1" ] && _dg_msg_error 'The table name is mandatory.' && return 1
-  [ -z "$2" ] && _dg_msg_error 'The where clause is mandatory.' && return 1
+  [ -z "$1" ] && _dg-msg-error 'The table name is mandatory.' && return 1
+  [ -z "$2" ] && _dg-msg-error 'The where clause is mandatory.' && return 1
 
   echo -n "Counting the records in table ${_DG_BOLD}$1${_DG_UNFORMAT}.. "
   local REMAINING
@@ -435,7 +479,7 @@ m2-sql-mass-delete() {
   echo "done. Total: $REMAINING"
 
   local BATCH_SIZE
-  BATCH_SIZE=10000
+  BATCH_SIZE=${3:-10000}
 
   local ITERATIONS
   ITERATIONS=$(bc -q <<< "$REMAINING / $BATCH_SIZE")
@@ -472,7 +516,7 @@ m2-sql-clean-file() {
 }
 
 m2-sql-watch() {
-  m2-cli watch -x bin/magerun2 db:query 'SHOW FULL PROCESSLIST'
+  m2-cli watch -x bin/n98-magerun2 db:query 'SHOW FULL PROCESSLIST'
 }
 
 m2-unit-test() {
@@ -504,7 +548,7 @@ m2-xdebug-disable() {
   echo 'done.'
 }
 
-m2-get-bearer() {
+m2-bearer() {
   # m2-disable-two-factor-authentication
   if [ -n "$1" ] && [ -n "$2" ] && [ -z "$3" ]; then
     echo -n "Password for user \"$2\": "
@@ -552,6 +596,10 @@ export NVM_DIR=\"\$HOME/.nvm\"
 " > ~/.bashrc'
 }
 
+m2-es-flush() {
+  curl -X DELETE 'http://localhost:9200/_all'
+}
+
 m2-nvm-use() {
   m2-cli bash -ic "nvm install $1 && nvm use $1"
 }
@@ -582,7 +630,7 @@ m2-sanitize-sku() {
 }
 
 m2-sanitize-url-path() {
-  m2-sanitize-sku "$@"
+  m2 dev:con --no-ansi "\$di->get(Magento\Framework\Filter\FilterManager::class)->translitUrl('$*'); exit" | sed $'s,\x1b\\[[0-9;]*[a-zA-Z],,g' | grep '= ' | sed -e 's/=> //' | cut -d'"' -f2
 }
 
 m2-test-class() {
@@ -607,8 +655,6 @@ alias m2-cloud-patches-list="vendor/bin/ece-patches status"
 alias m2-cloud-redeploy="m2-cli bash -c 'cloud-deploy && magento-command de:mo:set developer && cloud-post-deploy'"
 alias m2-delete-disabled-products="m2 db:query 'DELETE cpe FROM catalog_product_entity cpe JOIN catalog_product_entity_int cpei ON cpei.entity_id = cpe.entity_id AND attribute_id = (SELECT attribute_id FROM eav_attribute WHERE attribute_code = \"status\" AND entity_type_id = (SELECT entity_type_id FROM eav_entity_type WHERE entity_type_code = \"catalog_product\")) WHERE cpei.value = 2'"
 alias m2-disable-captchas="m2-config-set customer/captcha/enable 0 && m2-config-set admin/captcha/enable 0"
-alias m2-es-flush="curl -X DELETE 'http://localhost:9200/_all'"
-alias m2-fix-missing-admin-role="m2 db:query \"INSERT INTO authorization_role (role_id, parent_id, tree_level, sort_order, role_type, user_id, user_type, role_name) VALUES (1, 0, 1, 1, 'G', 0, '2', 'Administrators'); INSERT INTO authorization_rule (rule_id, role_id, resource_id, privileges, permission) VALUES (1, 1, 'Magento_Backend::all', null, 'allow')\""
 alias m2-generate-db-whitelist="m2 setup:db-declaration:generate-whitelist --module-name"
 alias m2-generate-xml-autocomplete="m2 dev:urn-catalog:generate xsd_catalog_raw.xml"
 alias m2-list-plugins="m2 dev:di:info"
