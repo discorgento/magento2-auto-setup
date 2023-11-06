@@ -6,12 +6,12 @@ c() {
   m2-xdebug-tmp-disable-before
   m2-cache-watch-stop
 
-  # Make sure to use the latest minor version of Composer 2.2 LTS
-  if [ ! "$(m2-root bash -c '[ -e /.composer-updated.flag ] && echo 1')" ]; then
-    c2-install
-  fi
+  # # Make sure to use the latest minor version of Composer 2.2 LTS
+  # if [ ! "$(m2-root bash -c '[ -e /.composer-updated.flag ] && echo 1')" ]; then
+  #   c2-install
+  # fi
 
-  m2-cli php -d memory_limit=-1 /usr/local/bin/composer "$@"
+  m2-cli php -d memory_limit=-1 "$(which composer)" "$@"
 
   m2-xdebug-tmp-disable-after
 }
@@ -23,7 +23,7 @@ c-clone-package() {
   STORE_ROOT_DIR=$(pwd)
   local MODULES_DIR="${STORE_ROOT_DIR}/var/modules"
   local VENDOR_DIR="${STORE_ROOT_DIR}/vendor"
-  local LOG_FILE="${STORE_ROOT_DIR}/var/log/composer-clone-package.txt"
+  local LOG_FILE="${STORE_ROOT_DIR}/var/log/composer-clone-package.log"
 
   mkdir -p "$MODULES_DIR"
 
