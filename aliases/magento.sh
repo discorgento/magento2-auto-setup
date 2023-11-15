@@ -9,41 +9,30 @@ m2() {
     php -d memory_limit=-1 \
     bin/n98-magerun2 --skip-root-check --skip-magento-compatibility-check \
     "$@"
-
-  # d exec -it -e XDEBUG_CONFIG='idekey=phpstorm' "$(dc ps -q phpfpm)" \
-  #   php -d memory_limit=-1 \
-  #   bin/n98-magerun2 --skip-root-check --skip-magento-compatibility-check \
-  #   "$@"
 }
 
 m2-native() {
-  # ! m2-check-infra && return 1
-  # mr2-check-install
-
-  # d exec -it -e XDEBUG_CONFIG='idekey=phpstorm' "$(dc ps -q phpfpm)" \
-  #   php -d memory_limit=-1 \
-  #   bin/magento "$@"
-
   den env exec -it php-fpm bin/magento "$@"
 }
 
 m2-is-store-root-folder() {
-  ! m2-version 1> /dev/null && return 1
+  ! m2-version 1>/dev/null && return 1
   return 0
 }
 
 m2-check-infra() {
-  # ! m2-is-store-root-folder && return 1
-  # ! dc ps --status=running -q phpfpm &> /dev/null && m2-start
+  #! m2-is-store-root-folder && return 1
+  [ -z "$(den svc ps -q)" ] && den svc up
+  [ -z "$(den env ps -q)" ] && den env up
 
-  # return 0
+  return 0
 }
 
 mr2-check-install() {
   [ -e bin/n98-magerun2 ] && return 0
 
   echo -n "Installing ${_DG_BOLD}Magerun2${_DG_UNFORMAT}.. "
-  m2-cli bash -c 'curl https://files.magerun.net/n98-magerun2.phar --output bin/n98-magerun2 && chmod +x bin/n98-magerun2' &> var/log/_magerun2.log
+  m2-cli bash -c 'curl https://files.magerun.net/n98-magerun2.phar --output bin/n98-magerun2 && chmod +x bin/n98-magerun2' &>var/log/_magerun2.log
   echo 'done.'
 }
 
@@ -52,7 +41,7 @@ _m2-get-version-for() {
   MAGENTO_PACKAGE=$([ "$1" = "cloud" ] && echo "magento/magento-cloud-metapackage" || echo "magento/product-$1-edition")
 
   local VERSION
-  VERSION=$(jq -r ".require.\"$MAGENTO_PACKAGE\"" composer.json 2> /dev/null)
+  VERSION=$(jq -r ".require.\"$MAGENTO_PACKAGE\"" composer.json 2>/dev/null)
   [ "$VERSION" != "null" ] && echo "$VERSION" || echo ''
 }
 
@@ -85,27 +74,21 @@ m2-biggest-tables() {
 m2-cli() {
   ! m2-check-infra && return 1
   den env exec -e XDEBUG_CONFIG='idekey=phpstorm' -- php-fpm env "${@:-bash}"
-  # dm cli "${@:-bash}"
 }
 
 m2-root() {
   ! m2-check-infra && return 1
   den env exec -u root php-fpm "${@:-bash}"
-  # dm root "${@:-bash}"
 }
 
 m2-start() {
   ! m2-is-store-root-folder && return 1
 
-  # local DEN_SERVICES_CONTAINERS=$(den svc ps -q)
-  # [ -z "$DEN_SERVICES_CONTAINERS" ] && den svc up
+  local DEN_SERVICES=$(den svc ps -q)
+  [ -z "$DEN_SERVICES" ] && den svc up
 
-  # local DEN_PROJECT_CONTAINERS=$(den env ps -q)
-  # [ -z "$DEN_PROJECT_CONTAINERS" ] && den env up
-
-  d-stop-all
-  dm start
-  # dc exec rabbitmq rabbitmqctl set_vm_memory_high_watermark absolute 3G &>> var/log/_rabbitmq.log
+  local DEN_PROJECT_CONTAINERS=$(den env ps -q)
+  [ -z "$DEN_PROJECT_CONTAINERS" ] && den env up
 
   m2-clean-logs
   m2-cache-warmup
@@ -121,12 +104,10 @@ m2-stop() {
 
 m2-setup-upgrade() {
   ! m2-check-infra && return 1
-  # m2-xdebug-tmp-disable-before
   m2-cache-watch-stop
 
   m2-native se:up
 
-  # m2-xdebug-tmp-disable-after
   m2-cache-warmup
 }
 
@@ -153,46 +134,21 @@ m2-db-import() { (
   fi
 
   ! m2-check-infra && return 1
-  m2-xdebug-tmp-disable-before
-
-  # if [ ! "$(m2-cli bash -c 'which pv')" ]; then
-  #   echo -n 'Enabling progress bar.. '
-  #   m2-root bash -c 'apt update && apt-get install -y pv' &> var/log/_pv.log
-  #   echo 'done.'
-  # fi
-
-  # local DB_NAME
-  # shellcheck disable=SC2016
-  # DB_NAME=$(php -r '$env = include("app/etc/env.php");echo $env["db"]["connection"]["default"]["dbname"];')
-
-  # sed -i 's/MYSQL_USER=magento/MYSQL_USER=root/' ../env/db.env
-  # shellcheck disable=SC1091
-  # source '../env/db.env'
-
-  # echo -n "Recreating ${_DG_BOLD}$DB_NAME${_DG_UNFORMAT} database.. "
-  # dm clinotty mysql -h"${MYSQL_HOST}" -u"${MYSQL_USER}" -p"${MYSQL_PASSWORD}" <<< \
-  #   "DROP DATABASE IF EXISTS $DB_NAME; CREATE DATABASE $DB_NAME;"
-  # echo 'done.'
 
   local DUMP_FILE_EXTENSION
   DUMP_FILE_EXTENSION="${DUMP_FILE_NAME##*.}"
 
-  #m2 db:dr -f
-  #m2 db:cr
-
-  den db import <<< 'DROP DATABASE IF EXISTS magento; CREATE DATABASE magento'
+  den db import <<<'DROP DATABASE IF EXISTS magento; CREATE DATABASE magento'
 
   setterm --cursor off
   case "$DUMP_FILE_EXTENSION" in
-    sql) pv "$DUMP_FILE_NAME" | den db import ;;
-    gz) pv "$DUMP_FILE_NAME" | gunzip -c | den db import ;;
-    *) echo -e "Dump file type is not supported." && return 1 ;;
+  sql) pv "$DUMP_FILE_NAME" | den db import ;;
+  gz) pv "$DUMP_FILE_NAME" | gunzip -c | den db import ;;
+  *) echo -e "Dump file type is not supported." && return 1 ;;
   esac
   setterm --cursor on
 
   m2-post-db-import
-
-  m2-xdebug-tmp-disable-after
 ); }
 
 m2-db-console() {
@@ -222,6 +178,7 @@ m2-post-db-import() { (
       path LIKE 'catalog/search/%' OR
       path LIKE 'dev/%' OR
       path LIKE 'smtp/%' OR
+      path LIKE 'system/gmailsmtpapp/%' OR
       path LIKE 'system/full_page_cache/%' OR
       path LIKE 'web/cookie%' OR
       path LIKE 'web/secure/%' OR
@@ -256,36 +213,11 @@ m2-install() { (
 
   if ! grep -q "magento2.test" /etc/hosts; then
     echo 'Mapping the magento2.test to your /etc/hosts..'
-    sudo tee -a /etc/hosts <<< "127.0.0.1	::1	magento2.test"
+    sudo tee -a /etc/hosts <<<"127.0.0.1	::1	magento2.test"
     echo 'mapped.'
   fi
 
-  # local DB_ENV_PATH=../env/db.env
-  # [ ! -e $DB_ENV_PATH ] && _dg-msg-error "Database env vars not found ($DB_ENV_PATH)" && exit
-  # shellcheck disable=SC1090
-  # source "$DB_ENV_PATH"
-  # dm clinotty mysql -h"${MYSQL_HOST}" -u"${MYSQL_USER}" -p"${MYSQL_PASSWORD}" <<< 'CREATE DATABASE IF NOT EXISTS magento'
-  den db import <<< 'CREATE DATABASE IF NOT EXISTS magento'
-
-  # m2-native setup:install \
-  #   --base-url="https://magento2.test/" \
-  #   --backend-frontname="admin" \
-  #   --db-host="db" \
-  #   --db-name="magento" \
-  #   --db-user="root" \
-  #   --db-password="magento" \
-  #   --admin-firstname="Dev" \
-  #   --admin-lastname="Team" \
-  #   --admin-email="dev@discorgento.com" \
-  #   --admin-user="admin" \
-  #   --admin-password="Admin123@" \
-  #   --search-engine="elasticsearch7" \
-  #   --elasticsearch-host="elasticsearch" \
-  #   --elasticsearch-port="9200" \
-  #   --elasticsearch-index-prefix="magento2" \
-  #   --elasticsearch-timeout="15" \
-  #   --use-rewrites="1" \
-  #   "$@"
+  den db import <<<'CREATE DATABASE IF NOT EXISTS magento'
 
   m2-native setup:install \
     --base-url="https://magento2.test/" \
@@ -400,16 +332,6 @@ m2-grids-slim() {
       SELECT attribute_id FROM eav_attribute WHERE is_user_defined = 1
     );
   "
-
-  # m2 db:query "
-  #   # Lean admin grids
-  #   DELETE FROM ui_bookmark WHERE namespace IN ('customer_listing', 'product_listing', 'sales_order_grid');
-  #   INSERT INTO ui_bookmark (user_id, namespace, identifier, current, title, config, created_at, updated_at)
-  #   VALUES
-  #     ((SELECT user_id FROM admin_user WHERE username='admin'),'customer_listing','current',0,NULL,'{\"current\":{\"search\":{\"value\":\"\"},\"filters\":{\"applied\":{\"placeholder\":true}},\"paging\":{\"pageSize\":20,\"current\":1,\"options\":{\"20\":{\"value\":20,\"label\":20},\"30\":{\"value\":30,\"label\":30},\"50\":{\"value\":50,\"label\":50},\"100\":{\"value\":100,\"label\":100},\"200\":{\"value\":200,\"label\":200}},\"value\":20},\"columns\":{\"entity_id\":{\"visible\":true,\"sorting\":\"desc\"},\"name\":{\"visible\":true,\"sorting\":false},\"email\":{\"visible\":true,\"sorting\":false},\"billing_telephone\":{\"visible\":true,\"sorting\":false},\"billing_postcode\":{\"visible\":true,\"sorting\":false},\"billing_region\":{\"visible\":false,\"sorting\":false},\"confirmation\":{\"visible\":false,\"sorting\":false},\"created_in\":{\"visible\":false,\"sorting\":false},\"billing_full\":{\"visible\":false,\"sorting\":false},\"shipping_full\":{\"visible\":false,\"sorting\":false},\"taxvat\":{\"visible\":true,\"sorting\":false},\"billing_street\":{\"visible\":false,\"sorting\":false},\"billing_city\":{\"visible\":false,\"sorting\":false},\"billing_fax\":{\"visible\":false,\"sorting\":false},\"billing_vat_id\":{\"visible\":false,\"sorting\":false},\"billing_company\":{\"visible\":false,\"sorting\":false},\"billing_firstname\":{\"visible\":false,\"sorting\":false},\"billing_lastname\":{\"visible\":false,\"sorting\":false},\"lock_expires\":{\"visible\":false,\"sorting\":false},\"mailchimp_sync\":{\"visible\":false,\"sorting\":false},\"address_reference\":{\"visible\":false,\"sorting\":false},\"actions\":{\"visible\":true,\"sorting\":false},\"ids\":{\"visible\":true,\"sorting\":false},\"group_id\":{\"visible\":true,\"sorting\":false},\"billing_country_id\":{\"visible\":false,\"sorting\":false},\"website_id\":{\"visible\":true,\"sorting\":false},\"gender\":{\"visible\":false,\"sorting\":false},\"created_at\":{\"visible\":false,\"sorting\":false},\"dob\":{\"visible\":false,\"sorting\":false}},\"displayMode\":\"grid\",\"positions\":{\"ids\":0,\"entity_id\":1,\"website_id\":2,\"name\":3,\"mailchimp_sync\":4,\"email\":5,\"taxvat\":6,\"group_id\":7,\"billing_telephone\":8,\"billing_postcode\":9,\"billing_country_id\":10,\"billing_region\":11,\"created_at\":12,\"confirmation\":13,\"created_in\":14,\"billing_full\":15,\"shipping_full\":16,\"dob\":17,\"gender\":18,\"billing_street\":19,\"billing_city\":20,\"billing_fax\":21,\"billing_vat_id\":22,\"billing_company\":23,\"billing_firstname\":24,\"billing_lastname\":25,\"lock_expires\":26,\"address_reference\":27,\"actions\":28}}}','2022-08-24 13:54:47.0','2022-08-26 14:19:09.0'),
-  #     ((SELECT user_id FROM admin_user WHERE username='admin'),'product_listing','current',0,NULL,'{\"current\":{\"filters\":{\"applied\":{\"placeholder\":true}},\"paging\":{\"pageSize\":20,\"current\":1,\"options\":{\"20\":{\"value\":20,\"label\":20},\"30\":{\"value\":30,\"label\":30},\"50\":{\"value\":50,\"label\":50},\"100\":{\"value\":100,\"label\":100},\"200\":{\"value\":200,\"label\":200}},\"value\":20},\"search\":{\"value\":\"\"},\"columns\":{\"entity_id\":{\"visible\":true,\"sorting\":\"asc\"},\"name\":{\"visible\":true,\"sorting\":false},\"sku\":{\"visible\":true,\"sorting\":false},\"price\":{\"visible\":true,\"sorting\":false},\"websites\":{\"visible\":true,\"sorting\":false},\"qty\":{\"visible\":true,\"sorting\":false},\"mailchimp_sync\":{\"visible\":false,\"sorting\":false},\"short_description\":{\"visible\":false,\"sorting\":false},\"special_price\":{\"visible\":false,\"sorting\":false},\"cost\":{\"visible\":false,\"sorting\":false},\"weight\":{\"visible\":false,\"sorting\":false},\"meta_title\":{\"visible\":false,\"sorting\":false},\"meta_keyword\":{\"visible\":false,\"sorting\":false},\"meta_description\":{\"visible\":false,\"sorting\":false},\"url_key\":{\"visible\":false,\"sorting\":false},\"msrp\":{\"visible\":false,\"sorting\":false},\"days_pending_manufac\":{\"visible\":false,\"sorting\":false},\"actions\":{\"visible\":true,\"sorting\":false},\"ids\":{\"visible\":true,\"sorting\":false},\"type_id\":{\"visible\":false,\"sorting\":false},\"attribute_set_id\":{\"visible\":true,\"sorting\":false},\"visibility\":{\"visible\":true,\"sorting\":false},\"status\":{\"visible\":true,\"sorting\":false},\"manufacturer\":{\"visible\":false,\"sorting\":false},\"custom_design\":{\"visible\":false,\"sorting\":false},\"page_layout\":{\"visible\":false,\"sorting\":false},\"country_of_manufacture\":{\"visible\":false,\"sorting\":false},\"tax_class_id\":{\"visible\":false,\"sorting\":false},\"gift_message_available\":{\"visible\":false,\"sorting\":false},\"lancamento\":{\"visible\":false,\"sorting\":false},\"custom_layout\":{\"visible\":false,\"sorting\":false},\"prevenda\":{\"visible\":false,\"sorting\":false},\"desconto_progressivo\":{\"visible\":false,\"sorting\":false},\"o_preco_caiu\":{\"visible\":false,\"sorting\":false},\"liquida\":{\"visible\":false,\"sorting\":false},\"pre_venda_15_09\":{\"visible\":false,\"sorting\":false},\"pre_venda_19_09\":{\"visible\":false,\"sorting\":false},\"cor_riviera\":{\"visible\":false,\"sorting\":false},\"salable_quantity\":{\"visible\":false,\"sorting\":false},\"thumbnail\":{\"visible\":true,\"sorting\":false},\"special_from_date\":{\"visible\":false,\"sorting\":false},\"special_to_date\":{\"visible\":false,\"sorting\":false},\"news_from_date\":{\"visible\":false,\"sorting\":false},\"news_to_date\":{\"visible\":false,\"sorting\":false},\"custom_design_from\":{\"visible\":false,\"sorting\":false},\"custom_design_to\":{\"visible\":false,\"sorting\":false}},\"displayMode\":\"grid\",\"positions\":{\"ids\":0,\"entity_id\":1,\"thumbnail\":2,\"name\":3,\"type_id\":4,\"sku\":5,\"attribute_set_id\":6,\"price\":7,\"qty\":8,\"salable_quantity\":9,\"visibility\":10,\"status\":11,\"websites\":12,\"short_description\":13,\"special_price\":14,\"special_from_date\":15,\"special_to_date\":16,\"cost\":17,\"weight\":18,\"manufacturer\":19,\"meta_title\":20,\"meta_keyword\":21,\"meta_description\":22,\"news_from_date\":23,\"news_to_date\":24,\"url_key\":25,\"custom_design\":26,\"custom_design_from\":27,\"custom_design_to\":28,\"page_layout\":29,\"country_of_manufacture\":30,\"msrp\":31,\"tax_class_id\":32,\"gift_message_available\":33,\"days_pending_manufac\":34,\"lancamento\":35,\"custom_layout\":36,\"prevenda\":37,\"desconto_progressivo\":38,\"o_preco_caiu\":39,\"liquida\":40,\"pre_venda_15_09\":41,\"pre_venda_19_09\":42,\"cor_riviera\":43,\"actions\":44,\"mailchimp_sync\":45}}}','2022-08-26 14:20:13.0','2022-08-26 14:21:15.0'),
-  #     ((SELECT user_id FROM admin_user WHERE username='admin'),'sales_order_grid','current',0,NULL,'{\"current\":{\"search\":{\"value\":\"\"},\"filters\":{\"applied\":{\"placeholder\":true}},\"paging\":{\"pageSize\":20,\"current\":1,\"options\":{\"20\":{\"value\":20,\"label\":20},\"30\":{\"value\":30,\"label\":30},\"50\":{\"value\":50,\"label\":50},\"100\":{\"value\":100,\"label\":100},\"200\":{\"value\":200,\"label\":200}},\"value\":20},\"columns\":{\"increment_id\":{\"visible\":true,\"sorting\":\"desc\"},\"store_id\":{\"visible\":true,\"sorting\":false},\"billing_name\":{\"visible\":true,\"sorting\":false},\"shipping_name\":{\"visible\":false,\"sorting\":false},\"base_grand_total\":{\"visible\":true,\"sorting\":false},\"grand_total\":{\"visible\":false,\"sorting\":false},\"billing_address\":{\"visible\":false,\"sorting\":false},\"shipping_address\":{\"visible\":false,\"sorting\":false},\"shipping_information\":{\"visible\":false,\"sorting\":false},\"customer_email\":{\"visible\":false,\"sorting\":false},\"subtotal\":{\"visible\":false,\"sorting\":false},\"shipping_and_handling\":{\"visible\":false,\"sorting\":false},\"customer_name\":{\"visible\":false,\"sorting\":false},\"total_refunded\":{\"visible\":false,\"sorting\":false},\"pickup_location_code\":{\"visible\":false,\"sorting\":false},\"transaction_source\":{\"visible\":false,\"sorting\":false},\"mailchimp_status\":{\"visible\":false,\"sorting\":false},\"mailchimp_sync\":{\"visible\":false,\"sorting\":false},\"allocated_sources\":{\"visible\":false,\"sorting\":false},\"actions\":{\"visible\":true,\"sorting\":false},\"ids\":{\"visible\":true,\"sorting\":false},\"created_at\":{\"visible\":true,\"sorting\":false},\"status\":{\"visible\":true,\"sorting\":false},\"customer_group\":{\"visible\":false,\"sorting\":false},\"payment_method\":{\"visible\":false,\"sorting\":false}},\"displayMode\":\"grid\",\"positions\":{\"ids\":0,\"increment_id\":1,\"store_id\":2,\"created_at\":3,\"billing_name\":4,\"shipping_name\":5,\"base_grand_total\":6,\"grand_total\":7,\"status\":8,\"billing_address\":9,\"shipping_address\":10,\"shipping_information\":11,\"customer_email\":12,\"customer_group\":13,\"subtotal\":14,\"shipping_and_handling\":15,\"customer_name\":16,\"payment_method\":17,\"total_refunded\":18,\"actions\":19,\"allocated_sources\":20,\"pickup_location_code\":21,\"transaction_source\":22,\"mailchimp_status\":23,\"mailchimp_sync\":24}}}','2022-08-26 14:20:26.0','2022-08-26 14:22:02.0');
-  # "
 }
 
 m2-fix-missing-admin-role() {
@@ -429,8 +351,8 @@ m2-recreate-admin-user() {
 
 m2-cache-warmup() {
   ! m2-check-infra && return 1
-  (m2-config-get '' &) &> /dev/null
-  (curl -Lk localhost &) &> var/log/_cache-warmup.html
+  (m2-config-get '' &) &>/dev/null
+  (curl -Lk localhost &) &>var/log/_cache-warmup.html
 }
 
 m2-cache-watch() {
@@ -438,21 +360,19 @@ m2-cache-watch() {
 
   m2-cache-watch-stop # kill running processes if any
   den env exec php-fpm bash -ic '~/.composer/vendor/bin/cache-clean.js -w'
-  # dm cache-clean --watch
 }
 
 m2-cache-watch-stop() {
-  m2-cli pgrep -f cache-clean | xargs kill &> /dev/null
+  m2-cli pgrep -f cache-clean | xargs kill &>/dev/null
 }
 
 m2-clean-logs() {
   mkdir -p var/log
-  # m2-root chown -Rc 1000:1000 var/log
-  truncate -s 0 var/log/*.log &> /dev/null
+  truncate -s 0 var/log/*.log &>/dev/null
 }
 
 m2-compile-assets() {
-  trash-put pub/static/{adminhtml,frontend} var/view_preprocessed/pub/static &> /dev/null
+  trash-put pub/static/{adminhtml,frontend} var/view_preprocessed/pub/static &>/dev/null
   m2 ca:cl full_page
   m2-cache-warmup
 }
@@ -475,20 +395,17 @@ m2-developer-mode() {
 }
 
 m2-production-mode() {
-  m2-xdebug-tmp-disable-before
-
   m2-native de:mo:set --skip-compilation production
   m2-deploy
-
-  m2-xdebug-tmp-disable-after
 }
 
-m2-deploy() {
+m2-deploy() { (
+  set -e
   m2-compile-assets
   m2 se:up
   m2 se:di:co
   m2 se:st:deploy
-}
+); }
 
 m2-console() {
   [ -z "$1" ] && m2 dev:con && return 0
@@ -550,11 +467,11 @@ m2-sql-mass-delete() {
   BATCH_SIZE=${3:-10000}
 
   local ITERATIONS
-  ITERATIONS=$(bc -q <<< "$REMAINING / $BATCH_SIZE")
+  ITERATIONS=$(bc -q <<<"$REMAINING / $BATCH_SIZE")
 
   local MOD_REST
-  MOD_REST=$(bc -q <<< "$REMAINING % $BATCH_SIZE")
-  [ "$MOD_REST" -gt 0 ] && ITERATIONS=$(bc -q <<< "$ITERATIONS + 1")
+  MOD_REST=$(bc -q <<<"$REMAINING % $BATCH_SIZE")
+  [ "$MOD_REST" -gt 0 ] && ITERATIONS=$(bc -q <<<"$ITERATIONS + 1")
 
   [ "$ITERATIONS" -lt 1 ] && return 0
 
@@ -578,7 +495,7 @@ m2-sql-clean-file() {
     /@@GLOBAL.GTID/,/\;/d;
     /^CREATE DATABASE/d;
     /^USE /d
-  ' -i "$1" &> var/log/sql-clean.log
+  ' -i "$1" &>var/log/sql-clean.log
 
   echo 'done.'
 }
@@ -587,12 +504,12 @@ m2-sql-watch() {
   m2-cli watch -x bin/n98-magerun2 db:query 'SHOW FULL PROCESSLIST'
 }
 
-m2-unit-test() {
-  docker exec -it \
-    -e XDEBUG_CONFIG='idekey=phpstorm' \
-    "$(dc ps -q phpfpm)" \
-    ./vendor/bin/phpunit -c dev/tests/unit/phpunit.xml.dist \
-    "$@"
+m2-test-unit() {
+  m2-cli bash -ic 'cd dev/tests/unit && ../../../vendor/bin/phpunit'
+}
+
+m2-test-integration() {
+  m2-cli bash -ic 'cd dev/tests/integration && ../../../vendor/bin/phpunit'
 }
 
 m2-xdebug-is-enabled() {
@@ -604,7 +521,7 @@ m2-xdebug-enable() {
   [ "$(m2-xdebug-is-enabled)" ] && echo 'Already enabled.' && return 0
 
   echo -n 'Enabling xdebug.. '
-  dm xdebug enable &> /dev/null
+  dm xdebug enable &>/dev/null
   echo 'done.'
 }
 
@@ -612,7 +529,7 @@ m2-xdebug-disable() {
   [ ! "$(m2-xdebug-is-enabled)" ] && echo 'Already disabled.' && return 0
 
   echo -n 'Disabling xdebug.. '
-  dm xdebug disable &> /dev/null
+  dm xdebug disable &>/dev/null
   echo 'done.'
 }
 
@@ -665,8 +582,8 @@ export NVM_DIR=\"\$HOME/.nvm\"
 }
 
 m2-es-flush() {
-  m2-cli curl -X DELETE 'http://elasticsearch:9200/_all' ||:
-  m2-cli curl -X DELETE 'http://opensearch:9200/_all' ||:
+  m2-cli curl -X DELETE 'http://elasticsearch:9200/_all' || :
+  m2-cli curl -X DELETE 'http://opensearch:9200/_all' || :
 }
 
 m2-nvm-use() {
@@ -687,7 +604,6 @@ m2-mysql-cli() {
 
 m2-redis-cli() {
   den redis "$@"
-  # dc exec -it redis redis-cli "$@"
 }
 
 m2-redis-flush() {
@@ -703,19 +619,8 @@ m2-sanitize-url-path() {
   m2 dev:con --no-ansi "\$di->get(Magento\Framework\Filter\FilterManager::class)->translitUrl('$*'); exit" | sed $'s,\x1b\\[[0-9;]*[a-zA-Z],,g' | grep '= ' | sed -e 's/=> //' | cut -d'"' -f2
 }
 
-m2-test-class() {
+m2-is-valid-class() {
   m2 dev:con --no-ansi "\$di->create(${1}::class) ? 'Valid.' : 'INVALID!!'; exit" | grep '=>'
-}
-
-m2-xdebug-tmp-disable-before() {
-  # M2_HANDLE_XDEBUG="$(m2-xdebug-is-enabled)"
-  # [ "$M2_HANDLE_XDEBUG" ] && m2-xdebug-disable
-  # return 0
-}
-
-m2-xdebug-tmp-disable-after() {
-  # [ "$M2_HANDLE_XDEBUG" ] && m2-xdebug-enable
-  # unset M2_HANDLE_XDEBUG
 }
 
 # Aliases
@@ -735,6 +640,7 @@ alias m2-payment-checkmo-enable="m2-config-set payment/checkmo/active 1"
 alias m2-queue-clean="m2 db:query 'DELETE FROM queue_message; DELETE FROM queue_message_status; DELETE FROM queue_lock; DELETE FROM queue_poison_pill; DELETE FROM magento_bulk; DELETE FROM magento_acknowledged_bulk'"
 alias m2-queue-fix="m2-module-disable Magento_WebapiAsync"
 alias m2-queue-list="m2-cli bash -c 'bin/magento qu:co:list | sort'"
+alias m2-queue-run="m2 sys:cron:run consumers_runner"
 alias m2-queue-start="m2 qu:co:start --single-thread"
 alias m2-queue-stop="dc restart rabbitmq"
 alias m2-reset-grids="m2 db:query 'delete from ui_bookmark'"
