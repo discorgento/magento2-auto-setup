@@ -5,7 +5,7 @@ c() {
   ! m2-check-infra && return 1
   m2-cache-watch-stop
 
-  m2-cli php -d memory_limit=-1 "$(which composer)" "$@"
+  m2-cli php -d memory_limit=-1 /usr/bin/composer "$@"
 }
 
 c-clone-package() {
@@ -57,14 +57,3 @@ c-update-cloned-packages() {
   done
 }
 
-c1-install() {
-  m2-root bash -c 'composer self-update --1' &> var/docker/composer.log
-}
-
-c2-install() {
-  echo -n "Updating to the latest ${_DG_BOLD}Composer 2.2 LTS${_DG_UNFORMAT} version.. "
-  # shellcheck disable=SC2016
-  m2-root bash -c 'curl -sS https://getcomposer.org/installer | php -- --2.2 && mv composer.phar $(which composer)' &> var/docker/composer.log
-  m2-root bash -c 'touch /.composer-updated.flag'
-  echo 'done.'
-}

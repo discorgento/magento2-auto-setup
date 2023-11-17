@@ -21,7 +21,9 @@ m2-is-store-root-folder() {
 }
 
 m2-check-infra() {
-  #! m2-is-store-root-folder && return 1
+  ! m2-is-store-root-folder && return 1
+  [ ! -d var/log ] && mkdir -p var/log
+
   [ -z "$(den svc ps -q)" ] && den svc up
   [ -z "$(den env ps -q)" ] && den env up
 
@@ -29,10 +31,12 @@ m2-check-infra() {
 }
 
 mr2-check-install() {
-  [ -e bin/n98-magerun2 ] && return 0
+  local MAGERUN2_PATH="bin/n98-magerun2"
+  [ -e "$MAGERUN2_PATH" ] && return 0
 
   echo -n "Installing ${_DG_BOLD}Magerun2${_DG_UNFORMAT}.. "
-  m2-cli bash -c 'curl https://files.magerun.net/n98-magerun2.phar --output bin/n98-magerun2 && chmod +x bin/n98-magerun2' &>var/log/_magerun2.log
+  local SOURCE_URL="https://files.magerun.net/n98-magerun2.phar"
+  m2-cli curl "$SOURCE_URL" --output "$MAGERUN2_PATH" && chmod +x "$MAGERUN2_PATH" &>var/log/_magerun2.log
   echo 'done.'
 }
 
@@ -63,17 +67,18 @@ m2-version() {
   echo "${VERSION//[^0-9|\.|p|-]/}"
 }
 
-m2-bash() {
-  m2-cli bash
-}
-
 m2-biggest-tables() {
   m2 db:query "SELECT table_schema as 'Database', table_name AS 'Table', round(((data_length + index_length) / 1024 / 1024), 2) 'Size in MB' FROM information_schema.TABLES ORDER BY (data_length + index_length) DESC LIMIT 10;" | column -t
 }
 
 m2-cli() {
   ! m2-check-infra && return 1
-  den env exec -e XDEBUG_CONFIG='idekey=phpstorm' -- php-fpm env "${@:-bash}"
+  ([ -z "$1" ] && den shell) || den shell -c "$*"
+}
+
+m2-debug() {
+  ! m2-check-infra && return 1
+  ([ -z "$1" ] && den debug) || den debug -c "$*"
 }
 
 m2-root() {
@@ -84,10 +89,12 @@ m2-root() {
 m2-start() {
   ! m2-is-store-root-folder && return 1
 
-  local DEN_SERVICES=$(den svc ps -q)
+  local DEN_SERVICES
+  DEN_SERVICES=$(den svc ps -q)
   [ -z "$DEN_SERVICES" ] && den svc up
 
-  local DEN_PROJECT_CONTAINERS=$(den env ps -q)
+  local DEN_PROJECT_CONTAINERS
+  DEN_PROJECT_CONTAINERS=$(den env ps -q)
   [ -z "$DEN_PROJECT_CONTAINERS" ] && den env up
 
   m2-clean-logs
@@ -95,11 +102,12 @@ m2-start() {
 }
 
 m2-restart() {
-  dm restart
+  den env down
+  den env up
 }
 
 m2-stop() {
-  dm stop
+  den env down
 }
 
 m2-setup-upgrade() {
@@ -190,7 +198,7 @@ m2-post-db-import() { (
 
   m2 se:up
   m2-cache-warmup
-  m2-recreate-admin-user || echo -n ''
+  m2-recreate-admin-user || :
   m2-grids-slim # needs to be after admin user creation
 
   echo -n 'Enabling all caches.. '
@@ -209,15 +217,14 @@ m2-post-db-import() { (
 
 m2-install() { (
   set -e
-  # ! m2-check-infra && return 1
-
-  if ! grep -q "magento2.test" /etc/hosts; then
-    echo 'Mapping the magento2.test to your /etc/hosts..'
-    sudo tee -a /etc/hosts <<<"127.0.0.1	::1	magento2.test"
-    echo 'mapped.'
-  fi
+  ! m2-check-infra && return 1
 
   den db import <<<'CREATE DATABASE IF NOT EXISTS magento'
+
+  local FILES_TO_CLEANUP=("app/etc/config.php" "app/etc/env.php")
+  for FILE_TO_CLEANUP in "${FILES_TO_CLEANUP[@]}"; do
+    [ -e "$FILE_TO_CLEANUP" ] && trash-put "$FILE_TO_CLEANUP"
+  done
 
   m2-native setup:install \
     --base-url="https://magento2.test/" \
@@ -231,11 +238,7 @@ m2-install() { (
     --admin-email="dev@discorgento.com" \
     --admin-user="admin" \
     --admin-password="Admin123@" \
-    --search-engine="elasticsearch7" \
-    --elasticsearch-host="opensearch" \
-    --elasticsearch-port="9200" \
-    --elasticsearch-index-prefix="magento2" \
-    --elasticsearch-timeout="15" \
+    --elasticsearch-host="elasticsearch" \
     --use-rewrites="1" \
     "$@"
 
@@ -243,16 +246,13 @@ m2-install() { (
   m2-native config:set --lock-env web/secure/base_url https://magento2.test/
   m2-native config:set --lock-env web/unsecure/base_url https://magento2.test/
 
-  # opensearch
+  # elasticsearch
   m2 db:query 'DELETE FROM core_config_data WHERE path LIKE "catalog/search%"'
   m2 db:query 'DELETE FROM core_config_data WHERE path LIKE "%elastic%"'
   m2-native config:set --lock-env catalog/search/enable_eav_indexer 1
-  m2-native config:set --lock-env catalog/search/engine opensearch
-  m2-native config:set --lock-env catalog/search/opensearch_server_hostname opensearch
-  m2-native config:set --lock-env catalog/search/opensearch_server_port 9200
-  m2-native config:set --lock-env catalog/search/opensearch_index_prefix magento2
-  m2-native config:set --lock-env catalog/search/opensearch_enable_auth 0
-  m2-native config:set --lock-env catalog/search/opensearch_server_timeout 15
+  m2-native config:set --lock-env catalog/search/engine elasticsearch7
+  m2-native config:set --lock-env catalog/search/elasticsearch7_server_hostname elasticsearch
+  m2-native config:set --lock-env catalog/search/elasticsearch7_server_port 9200
 
   # misc
   m2-native config:set --lock-env admin/security/use_form_key 0
@@ -359,7 +359,7 @@ m2-cache-watch() {
   ! m2-check-infra && return 1
 
   m2-cache-watch-stop # kill running processes if any
-  den env exec php-fpm bash -ic '~/.composer/vendor/bin/cache-clean.js -w'
+  m2-cli ~/.composer/vendor/bin/cache-clean.js -w
 }
 
 m2-cache-watch-stop() {
@@ -367,7 +367,6 @@ m2-cache-watch-stop() {
 }
 
 m2-clean-logs() {
-  mkdir -p var/log
   truncate -s 0 var/log/*.log &>/dev/null
 }
 
@@ -501,15 +500,23 @@ m2-sql-clean-file() {
 }
 
 m2-sql-watch() {
-  m2-cli watch -x bin/n98-magerun2 db:query 'SHOW FULL PROCESSLIST'
+  m2-cli watch -x bin/n98-magerun2 db:query "SHOW FULL PROCESSLIST"
 }
 
 m2-test-unit() {
-  m2-cli bash -ic 'cd dev/tests/unit && ../../../vendor/bin/phpunit'
+  clear && m2-cli 'cd dev/tests/unit && ../../../vendor/bin/phpunit'
+}
+
+m2-test-unit-debug() {
+  clear && m2-debug 'cd dev/tests/unit && ../../../vendor/bin/phpunit'
 }
 
 m2-test-integration() {
-  m2-cli bash -ic 'cd dev/tests/integration && ../../../vendor/bin/phpunit'
+  clear && m2-cli 'cd dev/tests/integration && ../../../vendor/bin/phpunit'
+}
+
+m2-test-integration-debug() {
+  clear && m2-debug 'cd dev/tests/integration && ../../../vendor/bin/phpunit'
 }
 
 m2-xdebug-is-enabled() {
@@ -570,24 +577,24 @@ m2-nvm-install() {
   echo 'done.'
 
   echo -n 'Installing nvm.. '
-  m2-cli bash -c 'curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.3/install.sh | bash'
+  m2-cli curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.3/install.sh | bash
   echo 'done.'
 
   # shellcheck disable=SC2016
-  m2-cli bash -c 'echo "\
+  m2-cli echo "\
 #!/bin/bash
 export NVM_DIR=\"\$HOME/.nvm\"
 [ -s \"\$NVM_DIR/nvm.sh\" ] && source \"\$NVM_DIR/nvm.sh\" # This loads nvm
-" > ~/.bashrc'
+" > ~/.bashrc
 }
 
 m2-es-flush() {
-  m2-cli curl -X DELETE 'http://elasticsearch:9200/_all' || :
-  m2-cli curl -X DELETE 'http://opensearch:9200/_all' || :
+  m2-cli "curl -X DELETE 'http://elasticsearch:9200/_all' 2> /dev/null" || \
+  m2-cli "curl -X DELETE 'http://opensearch:9200/_all'"
 }
 
 m2-nvm-use() {
-  m2-cli bash -ic "nvm install $1 && nvm use $1"
+  m2-cli nvm install "$1" && nvm use "$1"
 }
 
 m2-npm() {
@@ -627,7 +634,7 @@ m2-is-valid-class() {
 alias m2-apply-catalog-rules='m2 sys:cr:run catalogrule_apply_all'
 alias m2-cloud-patches-apply="m2-cli ./vendor/bin/ece-patches apply"
 alias m2-cloud-patches-list="vendor/bin/ece-patches status"
-alias m2-cloud-redeploy="m2-cli bash -c 'cloud-deploy && magento-command de:mo:set developer && cloud-post-deploy'"
+alias m2-cloud-redeploy="m2-cli cloud-deploy && magento-command de:mo:set developer && cloud-post-deploy"
 alias m2-delete-disabled-products="m2 db:query 'DELETE cpe FROM catalog_product_entity cpe JOIN catalog_product_entity_int cpei ON cpei.entity_id = cpe.entity_id AND attribute_id = (SELECT attribute_id FROM eav_attribute WHERE attribute_code = \"status\" AND entity_type_id = (SELECT entity_type_id FROM eav_entity_type WHERE entity_type_code = \"catalog_product\")) WHERE cpei.value = 2'"
 alias m2-disable-captchas="m2-config-set customer/captcha/enable 0 && m2-config-set admin/captcha/enable 0"
 alias m2-generate-db-whitelist="m2 setup:db-declaration:generate-whitelist --module-name"
@@ -639,13 +646,14 @@ alias m2-payment-checkmo-disable="m2-config-set payment/checkmo/active 0"
 alias m2-payment-checkmo-enable="m2-config-set payment/checkmo/active 1"
 alias m2-queue-clean="m2 db:query 'DELETE FROM queue_message; DELETE FROM queue_message_status; DELETE FROM queue_lock; DELETE FROM queue_poison_pill; DELETE FROM magento_bulk; DELETE FROM magento_acknowledged_bulk'"
 alias m2-queue-fix="m2-module-disable Magento_WebapiAsync"
-alias m2-queue-list="m2-cli bash -c 'bin/magento qu:co:list | sort'"
+alias m2-queue-list="m2-cli bin/magento qu:co:list | sort"
 alias m2-queue-run="m2 sys:cron:run consumers_runner"
 alias m2-queue-start="m2 qu:co:start --single-thread"
 alias m2-queue-stop="dc restart rabbitmq"
 alias m2-reset-grids="m2 db:query 'delete from ui_bookmark'"
-alias m2-setup-eslint="m2-cli bash -c 'if [ ! -e package.json ] && [ -e package.json.sample ]; then cp package.json{.sample,}; fi; npm install --save-dev eslint eslint-{config-standard,plugin-{import,node,promise,n}}' && echo '{\"extends\":\"standard\",\"rules\":{\"indent\":[\"error\",4]},\"env\":{\"amd\":true,\"browser\":true,\"jquery\":true},\"globals\":{\"Chart\":\"readonly\"},\"ignorePatterns\":[\"**/vendor/magento/*.js\"]}' > .eslintrc"
-alias m2-setup-stylelint="m2-cli bash -c 'if [ ! -e package.json ] && [ -e package.json.sample ]; then cp package.json{.sample,}; fi; npm install --save-dev stylelint{,-order}'"
+alias m2-setup-npm="[[ ! -e package.json && -e package.json.sample ]] && cp package.json{.sample,}"
+alias m2-setup-eslint="m2-setup-npm; m2-cli npm install --save-dev eslint eslint-{config-standard,plugin-{import,node,promise,n}} && echo '{\"extends\":\"standard\",\"rules\":{\"indent\":[\"error\",4]},\"env\":{\"amd\":true,\"browser\":true,\"jquery\":true},\"globals\":{\"Chart\":\"readonly\"},\"ignorePatterns\":[\"**/vendor/magento/*.js\"]}' > .eslintrc"
+alias m2-setup-stylelint="m2-setup-npm; m2-cli npm install --save-dev stylelint{,-order}"
 alias m2-shipping-flatrate-disable="m2-config-set carriers/flatrate/active 0"
 alias m2-shipping-flatrate-enable="m2-config-set carriers/flatrate/active 1"
 alias m2-shipping-freeshipping-disable="m2-config-set carriers/freeshipping/active 0"
