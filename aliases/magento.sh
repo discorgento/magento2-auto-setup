@@ -5,18 +5,24 @@ m2() {
   ! m2-check-infra && return 1
   mr2-check-install
 
-  den env exec -it -e XDEBUG_CONFIG='idekey=phpstorm' -- php-fpm \
+  warden env exec -it -- php-fpm \
     php -d memory_limit=-1 \
     bin/n98-magerun2 --skip-root-check --skip-magento-compatibility-check \
     "$@"
 }
 
 m2-native() {
-  den env exec -it php-fpm bin/magento "$@"
+  ! m2-check-infra && return 1
+  mr2-check-install
+
+  warden env exec -it -- php-fpm \
+    php -d memory_limit=-1 \
+    bin/magento \
+    "$@"
 }
 
 m2-is-store-root-folder() {
-  ! m2-version 1>/dev/null && return 1
+  ! m2-version 1> /dev/null && return 1
   return 0
 }
 
@@ -24,8 +30,8 @@ m2-check-infra() {
   ! m2-is-store-root-folder && return 1
   [ ! -d var/log ] && mkdir -p var/log
 
-  [ -z "$(den svc ps -q)" ] && den svc up
-  [ -z "$(den env ps -q)" ] && den env up
+  [ -z "$(warden svc ps -q)" ] && warden svc up
+  [ -z "$(warden env ps -q)" ] && warden env up
 
   return 0
 }
@@ -36,7 +42,7 @@ mr2-check-install() {
 
   echo -n "Installing ${_DG_BOLD}Magerun2${_DG_UNFORMAT}.. "
   local SOURCE_URL="https://files.magerun.net/n98-magerun2.phar"
-  m2-cli curl "$SOURCE_URL" --output "$MAGERUN2_PATH" && chmod +x "$MAGERUN2_PATH" &>var/log/_magerun2.log
+  m2-cli curl "$SOURCE_URL" --output "$MAGERUN2_PATH" && chmod +x "$MAGERUN2_PATH" &> var/log/_magerun2.log
   echo 'done.'
 }
 
@@ -45,7 +51,7 @@ _m2-get-version-for() {
   MAGENTO_PACKAGE=$([ "$1" = "cloud" ] && echo "magento/magento-cloud-metapackage" || echo "magento/product-$1-edition")
 
   local VERSION
-  VERSION=$(jq -r ".require.\"$MAGENTO_PACKAGE\"" composer.json 2>/dev/null)
+  VERSION=$(jq -r ".require.\"$MAGENTO_PACKAGE\"" composer.json 2> /dev/null)
   [ "$VERSION" != "null" ] && echo "$VERSION" || echo ''
 }
 
@@ -73,41 +79,41 @@ m2-biggest-tables() {
 
 m2-cli() {
   ! m2-check-infra && return 1
-  ([ -z "$1" ] && den shell) || den shell -c "$*"
+  ([ -z "$1" ] && warden shell) || warden shell -c "$*"
 }
 
 m2-debug() {
   ! m2-check-infra && return 1
-  ([ -z "$1" ] && den debug) || den debug -c "$*"
+  ([ -z "$1" ] && warden debug) || warden debug -c "$*"
 }
 
 m2-root() {
   ! m2-check-infra && return 1
-  den env exec -u root php-fpm "${@:-bash}"
+  warden env exec -u root php-fpm "${@:-bash}"
 }
 
 m2-start() {
   ! m2-is-store-root-folder && return 1
 
-  local DEN_SERVICES
-  DEN_SERVICES=$(den svc ps -q)
-  [ -z "$DEN_SERVICES" ] && den svc up
+  local WARDEN_SERVICES
+  WARDEN_SERVICES=$(warden svc ps -q)
+  [ -z "$WARDEN_SERVICES" ] && warden svc up
 
-  local DEN_PROJECT_CONTAINERS
-  DEN_PROJECT_CONTAINERS=$(den env ps -q)
-  [ -z "$DEN_PROJECT_CONTAINERS" ] && den env up
+  local WARDEN_PROJECT_CONTAINERS
+  WARDEN_PROJECT_CONTAINERS=$(warden env ps -q)
+  [ -z "$WARDEN_PROJECT_CONTAINERS" ] && warden env up
 
   m2-clean-logs
   m2-cache-warmup
 }
 
 m2-restart() {
-  den env down
-  den env up
+  warden env down --remove-orphans
+  warden env up
 }
 
 m2-stop() {
-  den env down
+  warden env down
 }
 
 m2-setup-upgrade() {
@@ -146,15 +152,23 @@ m2-db-import() { (
   local DUMP_FILE_EXTENSION
   DUMP_FILE_EXTENSION="${DUMP_FILE_NAME##*.}"
 
-  den db import <<<'DROP DATABASE IF EXISTS magento; CREATE DATABASE magento'
+  m2-sql-root 'DROP DATABASE IF EXISTS magento; CREATE DATABASE magento'
 
   setterm --cursor off
   case "$DUMP_FILE_EXTENSION" in
-  sql) pv "$DUMP_FILE_NAME" | den db import ;;
-  gz) pv "$DUMP_FILE_NAME" | gunzip -c | den db import ;;
-  *) echo -e "Dump file type is not supported." && return 1 ;;
+    sql) pv "$DUMP_FILE_NAME" | warden db import -f ;;
+    gz) pv "$DUMP_FILE_NAME" | gunzip -c | warden db import -f ;;
+    *) echo -e "Dump file type is not supported." && return 1 ;;
   esac
   setterm --cursor on
+
+  printf "Starting post db import script in 3.."
+  sleep 1
+  printf " 2.."
+  sleep 1
+  printf " 1.."
+  sleep 1
+  printf "\n"
 
   m2-post-db-import
 ); }
@@ -170,6 +184,8 @@ m2-db-search-column() {
 m2-post-db-import() { (
   set -e
 
+  m2-redis-flush
+  m2-native mod:enable --all
   m2-developer-mode
 
   echo -n 'Cleaning up the database.. '
@@ -185,8 +201,6 @@ m2-post-db-import() { (
       path LIKE 'c%placeholder%' OR
       path LIKE 'catalog/search/%' OR
       path LIKE 'dev/%' OR
-      path LIKE 'smtp/%' OR
-      path LIKE 'system/gmailsmtpapp/%' OR
       path LIKE 'system/full_page_cache/%' OR
       path LIKE 'web/cookie%' OR
       path LIKE 'web/secure/%' OR
@@ -219,7 +233,7 @@ m2-install() { (
   set -e
   ! m2-check-infra && return 1
 
-  den db import <<<'CREATE DATABASE IF NOT EXISTS magento'
+  m2-sql-root 'CREATE DATABASE IF NOT EXISTS magento'
 
   local FILES_TO_CLEANUP=("app/etc/config.php" "app/etc/env.php")
   for FILE_TO_CLEANUP in "${FILES_TO_CLEANUP[@]}"; do
@@ -238,7 +252,9 @@ m2-install() { (
     --admin-email="dev@discorgento.com" \
     --admin-user="admin" \
     --admin-password="Admin123@" \
+    --search-engine="elasticsearch7" \
     --elasticsearch-host="elasticsearch" \
+    --elasticsearch-port="9200" \
     --use-rewrites="1" \
     "$@"
 
@@ -310,11 +326,15 @@ m2-sever-integrations() {
       OR path LIKE "%_key"
       OR path LIKE "%api_key"
       OR path LIKE "%apikey"
+      OR path LIKE "free/module/%"
       OR path LIKE "%/token"
       OR path LIKE "%_token"
       OR path LIKE "%/passcode"
       OR path LIKE "%_passcode"
       OR path LIKE "%/%/%key"
+      OR path LIKE "smtp/%"
+      OR path LIKE "system/gmailsmtpapp/%"
+      OR path LIKE "system/smtp/%"
   '
 }
 
@@ -342,6 +362,10 @@ m2-fix-missing-admin-role() {
   "
 }
 
+m2-find-fixture() {
+  find dev/tests/integration/testsuite vendor -wholename '*/_files/*.php' | fzf
+}
+
 m2-recreate-admin-user() {
   echo -n 'Making sure admin user exists.. '
   m2 adm:us:del admin -f || echo -n ''
@@ -351,27 +375,31 @@ m2-recreate-admin-user() {
 
 m2-cache-warmup() {
   ! m2-check-infra && return 1
-  (m2-config-get '' &) &>/dev/null
-  (curl -Lk localhost &) &>var/log/_cache-warmup.html
+  (m2-config-get '' &) &> /dev/null
+  local DOMAIN
+  DOMAIN="$(grep TRAEFIK_DOMAIN .env | cut -d'=' -f2)"
+  (curl -Lk "$DOMAIN" &) &> var/log/_cache-warmup.html
 }
 
 m2-cache-watch() {
   ! m2-check-infra && return 1
 
   m2-cache-watch-stop # kill running processes if any
-  m2-cli ~/.composer/vendor/bin/cache-clean.js -w
+  # shellcheck disable=SC2088
+  m2-cli '~/.composer/vendor/bin/cache-clean.js -w'
 }
 
 m2-cache-watch-stop() {
-  m2-cli pgrep -f cache-clean | xargs kill &>/dev/null
+  m2-cli pgrep -f cache-clean | xargs kill &> /dev/null
 }
 
 m2-clean-logs() {
-  truncate -s 0 var/log/*.log &>/dev/null
+  mkdir -p var/log
+  rm var/log/*.log
 }
 
 m2-compile-assets() {
-  trash-put pub/static/{adminhtml,frontend} var/view_preprocessed/pub/static &>/dev/null
+  trash-put pub/static/{adminhtml,frontend} var/view_preprocessed/pub/static &> /dev/null || :
   m2 ca:cl full_page
   m2-cache-warmup
 }
@@ -453,6 +481,21 @@ m2-reindex-pending() {
   m2 sy:cr:run indexer_update_all_views
 }
 
+m2-sql() {
+  ([ -z "$1" ] && warden db connect) ||
+    warden env exec -it db bash -c "mysql -umagento -pmagento -Dmagento -e '$*'"
+}
+
+m2-sql-integration-tests-db() {
+  ([ -z "$1" ] && warden env exec -it tmp-mysql bash -c 'mysql -uroot -pmagento -Dmagento_integration_tests') ||
+    warden env exec -it tmp-mysql bash -c "mysql -uroot -pmagento -Dmagento_integration_tests -e '$*'"
+}
+
+m2-sql-root() {
+  ([ -z "$1" ] && warden env exec -it db bash -c 'mysql -uroot -pmagento') ||
+    warden env exec -it db bash -c "mysql -uroot -pmagento -e '$*'"
+}
+
 m2-sql-mass-delete() {
   [ -z "$1" ] && _dg-msg-error 'The table name is mandatory.' && return 1
   [ -z "$2" ] && _dg-msg-error 'The where clause is mandatory.' && return 1
@@ -466,11 +509,11 @@ m2-sql-mass-delete() {
   BATCH_SIZE=${3:-10000}
 
   local ITERATIONS
-  ITERATIONS=$(bc -q <<<"$REMAINING / $BATCH_SIZE")
+  ITERATIONS=$(bc -q <<< "$REMAINING / $BATCH_SIZE")
 
   local MOD_REST
-  MOD_REST=$(bc -q <<<"$REMAINING % $BATCH_SIZE")
-  [ "$MOD_REST" -gt 0 ] && ITERATIONS=$(bc -q <<<"$ITERATIONS + 1")
+  MOD_REST=$(bc -q <<< "$REMAINING % $BATCH_SIZE")
+  [ "$MOD_REST" -gt 0 ] && ITERATIONS=$(bc -q <<< "$ITERATIONS + 1")
 
   [ "$ITERATIONS" -lt 1 ] && return 0
 
@@ -494,7 +537,7 @@ m2-sql-clean-file() {
     /@@GLOBAL.GTID/,/\;/d;
     /^CREATE DATABASE/d;
     /^USE /d
-  ' -i "$1" &>var/log/sql-clean.log
+  ' -i "$1" &> var/log/sql-clean.log
 
   echo 'done.'
 }
@@ -504,19 +547,30 @@ m2-sql-watch() {
 }
 
 m2-test-unit() {
-  clear && m2-cli 'cd dev/tests/unit && ../../../vendor/bin/phpunit'
+  # shellcheck disable=SC2016
+  clear && m2-cli 'vendor/bin/phpunit -c "$(pwd)/dev/tests/unit/phpunit.xml"'
 }
 
 m2-test-unit-debug() {
-  clear && m2-debug 'cd dev/tests/unit && ../../../vendor/bin/phpunit'
+  # shellcheck disable=SC2016
+  clear && m2-debug 'vendor/bin/phpunit -c "$(pwd)/dev/tests/unit/phpunit.xml"'
 }
 
 m2-test-integration() {
-  clear && m2-cli 'cd dev/tests/integration && ../../../vendor/bin/phpunit'
+  # shellcheck disable=SC2016
+  clear && m2-cli 'vendor/bin/phpunit -c "$(pwd)/dev/tests/integration/phpunit.xml"'
 }
 
 m2-test-integration-debug() {
-  clear && m2-debug 'cd dev/tests/integration && ../../../vendor/bin/phpunit'
+  # shellcheck disable=SC2016
+  clear && m2-debug 'vendor/bin/phpunit -c "$(pwd)/dev/tests/integration/phpunit.xml"'
+}
+
+m2-test-integration-clean() {
+  sed -i 's/TESTS_CLEANUP"\ value="disabled/TESTS_CLEANUP"\ value="enabled/g' dev/tests/integration/phpunit.xml
+  rm -rf dev/tests/integration/tmp/* generated/* || :
+  m2-test-integration
+  sed -i 's/TESTS_CLEANUP"\ value="enabled/TESTS_CLEANUP"\ value="disabled/g' dev/tests/integration/phpunit.xml
 }
 
 m2-xdebug-is-enabled() {
@@ -528,7 +582,7 @@ m2-xdebug-enable() {
   [ "$(m2-xdebug-is-enabled)" ] && echo 'Already enabled.' && return 0
 
   echo -n 'Enabling xdebug.. '
-  dm xdebug enable &>/dev/null
+  dm xdebug enable &> /dev/null
   echo 'done.'
 }
 
@@ -536,7 +590,7 @@ m2-xdebug-disable() {
   [ ! "$(m2-xdebug-is-enabled)" ] && echo 'Already disabled.' && return 0
 
   echo -n 'Disabling xdebug.. '
-  dm xdebug disable &>/dev/null
+  dm xdebug disable &> /dev/null
   echo 'done.'
 }
 
@@ -581,16 +635,15 @@ m2-nvm-install() {
   echo 'done.'
 
   # shellcheck disable=SC2016
-  m2-cli echo "\
-#!/bin/bash
-export NVM_DIR=\"\$HOME/.nvm\"
-[ -s \"\$NVM_DIR/nvm.sh\" ] && source \"\$NVM_DIR/nvm.sh\" # This loads nvm
-" > ~/.bashrc
+  m2-cli echo '#!/bin/bash
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && source "$NVM_DIR/nvm.sh" # This loads nvm
+' > ~/.bashrc
 }
 
 m2-es-flush() {
-  m2-cli "curl -X DELETE 'http://elasticsearch:9200/_all' 2> /dev/null" || \
-  m2-cli "curl -X DELETE 'http://opensearch:9200/_all'"
+  m2-cli "curl -X DELETE 'http://elasticsearch:9200/_all' 2> /dev/null" ||
+    m2-cli "curl -X DELETE 'http://opensearch:9200/_all'"
 }
 
 m2-nvm-use() {
@@ -610,12 +663,11 @@ m2-mysql-cli() {
 }
 
 m2-redis-cli() {
-  den redis "$@"
+  warden redis "$@"
 }
 
 m2-redis-flush() {
   m2-redis-cli FLUSHALL
-  m2-cache-warmup
 }
 
 m2-sanitize-sku() {
@@ -626,7 +678,7 @@ m2-sanitize-url-path() {
   m2 dev:con --no-ansi "\$di->get(Magento\Framework\Filter\FilterManager::class)->translitUrl('$*'); exit" | sed $'s,\x1b\\[[0-9;]*[a-zA-Z],,g' | grep '= ' | sed -e 's/=> //' | cut -d'"' -f2
 }
 
-m2-is-valid-class() {
+m2-class-is-valid() {
   m2 dev:con --no-ansi "\$di->create(${1}::class) ? 'Valid.' : 'INVALID!!'; exit" | grep '=>'
 }
 
