@@ -56,21 +56,23 @@ _m2-get-version-for() {
 }
 
 m2-version() {
-  declare -A TRY_VERSIONS_MAP
-  TRY_VERSIONS_MAP=(
-    [ee]="$(_m2-get-version-for enterprise)"
-    [ce]="$(_m2-get-version-for community)"
-    [cl]="$(_m2-get-version-for cloud)"
-  )
+  jq -r '.packages[] | select( .name == "magento/product-community-edition" ) | .version' composer.lock
 
-  local VERSION
-  for TRY_VERSION in "${TRY_VERSIONS_MAP[@]}"; do
-    [ -n "$TRY_VERSION" ] && VERSION="$TRY_VERSION"
-  done
+  # declare -A TRY_VERSIONS_MAP
+  # TRY_VERSIONS_MAP=(
+  #   [ee]="$(_m2-get-version-for enterprise)"
+  #   [ce]="$(_m2-get-version-for community)"
+  #   [cl]="$(_m2-get-version-for cloud)"
+  # )
 
-  [ -z "$VERSION" ] && _dg-msg-error 'This command must be executed on the store root folder.' && return 1
+  # local VERSION
+  # for TRY_VERSION in "${TRY_VERSIONS_MAP[@]}"; do
+  #   [ -n "$TRY_VERSION" ] && VERSION="$TRY_VERSION"
+  # done
 
-  echo "${VERSION//[^0-9|\.|p|-]/}"
+  # [ -z "$VERSION" ] && _dg-msg-error 'This command must be executed on the store root folder.' && return 1
+
+  # echo "${VERSION//[^0-9|\.|p|-]/}"
 }
 
 m2-biggest-tables() {
@@ -101,7 +103,7 @@ m2-start() {
 
   local WARDEN_PROJECT_CONTAINERS
   WARDEN_PROJECT_CONTAINERS=$(warden env ps -q)
-  [ -z "$WARDEN_PROJECT_CONTAINERS" ] && warden env up
+  [ -z "$WARDEN_PROJECT_CONTAINERS" ] && warden env up --remove-orphans
 
   m2-clean-logs
   m2-cache-warmup
@@ -113,7 +115,7 @@ m2-restart() {
 }
 
 m2-stop() {
-  warden env down
+  warden env down --remove-orphans
 }
 
 m2-setup-upgrade() {
@@ -139,6 +141,23 @@ m2-db-dump() {
 
 m2-db-import() { (
   set -e
+
+  m2-db-import-partial "$@"
+
+  printf "Starting post db import script in 3.."
+  sleep 1
+  printf " 2.."
+  sleep 1
+  printf " 1.."
+  sleep 1
+  printf "\n"
+
+  m2-post-db-import
+); }
+
+m2-db-import-partial() { (
+  set -e
+
   local DUMP_FILE_NAME
   DUMP_FILE_NAME=$(basename "$1")
 
@@ -162,15 +181,7 @@ m2-db-import() { (
   esac
   setterm --cursor on
 
-  printf "Starting post db import script in 3.."
-  sleep 1
-  printf " 2.."
-  sleep 1
-  printf " 1.."
-  sleep 1
-  printf "\n"
-
-  m2-post-db-import
+  echo 'DB import finished.'
 ); }
 
 m2-db-console() {
@@ -204,6 +215,7 @@ m2-post-db-import() { (
       path LIKE 'system/full_page_cache/%' OR
       path LIKE 'web/cookie%' OR
       path LIKE 'web/secure/%' OR
+      path LIKE 'web/url/catalog_media_url%' OR
       path LIKE 'web/unsecure/%';
   "
   m2-fix-missing-admin-role
@@ -331,6 +343,7 @@ m2-sever-integrations() {
       OR path LIKE "%_token"
       OR path LIKE "%/passcode"
       OR path LIKE "%_passcode"
+      OR path LIKE "%secret"
       OR path LIKE "%/%/%key"
       OR path LIKE "smtp/%"
       OR path LIKE "system/gmailsmtpapp/%"
@@ -394,14 +407,13 @@ m2-cache-watch-stop() {
 }
 
 m2-clean-logs() {
+  [ -d var/log ] && trash-put var/log
   mkdir -p var/log
-  rm var/log/*.log
 }
 
 m2-compile-assets() {
   trash-put pub/static/{adminhtml,frontend} var/view_preprocessed/pub/static &> /dev/null || :
   m2 ca:cl full_page
-  m2-cache-warmup
 }
 
 m2-custom-logs-enable() {
@@ -429,9 +441,14 @@ m2-production-mode() {
 m2-deploy() { (
   set -e
   m2-compile-assets
-  m2 se:up
+
   m2 se:di:co
   m2 se:st:deploy
+
+  ! m2 app:co:status && m2 app:co:im
+  ! m2 setup:db:status && m2 se:up --keep-generated
+
+  echo 'm2-deploy done.'
 ); }
 
 m2-console() {
@@ -625,29 +642,9 @@ m2-module-enable() {
   m2-cache-warmup
 }
 
-m2-nvm-install() {
-  echo -n 'Installing yarn.. '
-  m2-root bash -c 'npm i --global yarn &> var/log/_nvm.log'
-  echo 'done.'
-
-  echo -n 'Installing nvm.. '
-  m2-cli curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.3/install.sh | bash
-  echo 'done.'
-
-  # shellcheck disable=SC2016
-  m2-cli echo '#!/bin/bash
-export NVM_DIR="$HOME/.nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && source "$NVM_DIR/nvm.sh" # This loads nvm
-' > ~/.bashrc
-}
-
 m2-es-flush() {
   m2-cli "curl -X DELETE 'http://elasticsearch:9200/_all' 2> /dev/null" ||
     m2-cli "curl -X DELETE 'http://opensearch:9200/_all'"
-}
-
-m2-nvm-use() {
-  m2-cli nvm install "$1" && nvm use "$1"
 }
 
 m2-npm() {
