@@ -36,6 +36,10 @@ m2-check-infra() {
   return 0
 }
 
+mr2-install() {
+  curl https://files.magerun.net/n98-magerun2.phar --output bin/n98-magerun2 && chmod +x bin/n98-magerun2
+}
+
 mr2-check-install() {
   local MAGERUN2_PATH="bin/n98-magerun2"
   [ -e "$MAGERUN2_PATH" ] && return 0
@@ -57,22 +61,6 @@ _m2-get-version-for() {
 
 m2-version() {
   jq -r '.packages[] | select( .name == "magento/product-community-edition" ) | .version' composer.lock
-
-  # declare -A TRY_VERSIONS_MAP
-  # TRY_VERSIONS_MAP=(
-  #   [ee]="$(_m2-get-version-for enterprise)"
-  #   [ce]="$(_m2-get-version-for community)"
-  #   [cl]="$(_m2-get-version-for cloud)"
-  # )
-
-  # local VERSION
-  # for TRY_VERSION in "${TRY_VERSIONS_MAP[@]}"; do
-  #   [ -n "$TRY_VERSION" ] && VERSION="$TRY_VERSION"
-  # done
-
-  # [ -z "$VERSION" ] && _dg-msg-error 'This command must be executed on the store root folder.' && return 1
-
-  # echo "${VERSION//[^0-9|\.|p|-]/}"
 }
 
 m2-biggest-tables() {
@@ -142,7 +130,7 @@ m2-db-dump() {
 m2-db-import() { (
   set -e
 
-  m2-db-import-partial "$@"
+  m2-db-import-raw "$@"
 
   printf "Starting post db import script in 3.."
   sleep 1
@@ -155,7 +143,7 @@ m2-db-import() { (
   m2-post-db-import
 ); }
 
-m2-db-import-partial() { (
+m2-db-import-raw() { (
   set -e
 
   local DUMP_FILE_NAME
@@ -265,7 +253,7 @@ m2-install() { (
     --admin-user="admin" \
     --admin-password="Admin123@" \
     --search-engine="elasticsearch7" \
-    --elasticsearch-host="elasticsearch" \
+    --elasticsearch-host="opensearch" \
     --elasticsearch-port="9200" \
     --use-rewrites="1" \
     "$@"
@@ -274,12 +262,12 @@ m2-install() { (
   m2-native config:set --lock-env web/secure/base_url https://magento2.test/
   m2-native config:set --lock-env web/unsecure/base_url https://magento2.test/
 
-  # elasticsearch
+  # opensearch
   m2 db:query 'DELETE FROM core_config_data WHERE path LIKE "catalog/search%"'
   m2 db:query 'DELETE FROM core_config_data WHERE path LIKE "%elastic%"'
   m2-native config:set --lock-env catalog/search/enable_eav_indexer 1
   m2-native config:set --lock-env catalog/search/engine elasticsearch7
-  m2-native config:set --lock-env catalog/search/elasticsearch7_server_hostname elasticsearch
+  m2-native config:set --lock-env catalog/search/elasticsearch7_server_hostname opensearch
   m2-native config:set --lock-env catalog/search/elasticsearch7_server_port 9200
 
   # misc
@@ -443,7 +431,7 @@ m2-deploy() { (
   m2-compile-assets
 
   m2 se:di:co
-  m2 se:st:deploy
+  m2 se:st:deploy --jobs="$(nproc)"
 
   ! m2 app:co:status && m2 app:co:im
   ! m2 setup:db:status && m2 se:up --keep-generated
@@ -515,11 +503,13 @@ m2-sql-root() {
 
 m2-sql-mass-delete() {
   [ -z "$1" ] && _dg-msg-error 'The table name is mandatory.' && return 1
-  [ -z "$2" ] && _dg-msg-error 'The where clause is mandatory.' && return 1
+
+  local WHERE
+  WHERE=${2:-'1=1'}
 
   echo -n "Counting the records in table ${_DG_BOLD}$1${_DG_UNFORMAT}.. "
   local REMAINING
-  REMAINING=$(m2 db:query "SELECT count(*) FROM $1 WHERE $2" | grep -v 'count' -m 1 | grep -o '[0-9]*')
+  REMAINING=$(m2 db:query "SELECT count(*) FROM $1 WHERE $WHERE" | grep -v 'count' -m 1 | grep -o '[0-9]*')
   echo "done. Total: $REMAINING"
 
   local BATCH_SIZE
@@ -536,7 +526,7 @@ m2-sql-mass-delete() {
 
   for I in $(seq 1 "$ITERATIONS"); do
     echo -ne "\rDeleting page $I/$ITERATIONS.. "
-    m2 db:query "DELETE FROM $1 WHERE $2 LIMIT $BATCH_SIZE"
+    m2 db:query "DELETE FROM $1 WHERE $WHERE LIMIT $BATCH_SIZE"
     REMAINING=$REMAINING-$BATCH_SIZE
   done
   echo 'done.'
@@ -647,6 +637,16 @@ m2-es-flush() {
     m2-cli "curl -X DELETE 'http://opensearch:9200/_all'"
 }
 
+m2-es-version() {
+  local ES_HOST
+  ES_HOST="$(warden env ps | grep search | awk '{print $4}')"
+  m2-cli curl -XGET "$ES_HOST:9200" 2> /dev/null | jq -r '.version.distribution + " " + .version.number'
+}
+
+m2-queue-start() {
+  m2-cli 'bin/magento qu:co:li | xargs -P0 -n1 bin/magento qu:co:start --single-thread'
+}
+
 m2-npm() {
   m2-cli npm "$@"
 }
@@ -665,6 +665,10 @@ m2-redis-cli() {
 
 m2-redis-flush() {
   m2-redis-cli FLUSHALL
+}
+
+m2-redis-version() {
+  m2-redis-cli INFO server | grep redis_version | awk -F':' '{print $2}'
 }
 
 m2-sanitize-sku() {
@@ -695,10 +699,6 @@ alias m2-payment-checkmo-disable="m2-config-set payment/checkmo/active 0"
 alias m2-payment-checkmo-enable="m2-config-set payment/checkmo/active 1"
 alias m2-queue-clean="m2 db:query 'DELETE FROM queue_message; DELETE FROM queue_message_status; DELETE FROM queue_lock; DELETE FROM queue_poison_pill; DELETE FROM magento_bulk; DELETE FROM magento_acknowledged_bulk'"
 alias m2-queue-fix="m2-module-disable Magento_WebapiAsync"
-alias m2-queue-list="m2-cli bin/magento qu:co:list | sort"
-alias m2-queue-run="m2 sys:cron:run consumers_runner"
-alias m2-queue-start="m2 qu:co:start --single-thread"
-alias m2-queue-stop="dc restart rabbitmq"
 alias m2-reset-grids="m2 db:query 'delete from ui_bookmark'"
 alias m2-setup-npm="[[ ! -e package.json && -e package.json.sample ]] && cp package.json{.sample,}"
 alias m2-setup-eslint="m2-setup-npm; m2-cli npm install --save-dev eslint eslint-{config-standard,plugin-{import,node,promise,n}} && echo '{\"extends\":\"standard\",\"rules\":{\"indent\":[\"error\",4]},\"env\":{\"amd\":true,\"browser\":true,\"jquery\":true},\"globals\":{\"Chart\":\"readonly\"},\"ignorePatterns\":[\"**/vendor/magento/*.js\"]}' > .eslintrc"
