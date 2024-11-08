@@ -63,6 +63,10 @@ m2-version() {
   jq -r '.packages[] | select( .name == "magento/product-community-edition" ) | .version' composer.lock
 }
 
+m2-version-alt() {
+  grep -A1 '"name": "magento/product-community-edition"' composer.lock
+}
+
 m2-biggest-tables() {
   m2 db:query "SELECT table_schema as 'Database', table_name AS 'Table', round(((data_length + index_length) / 1024 / 1024), 2) 'Size in MB' FROM information_schema.TABLES ORDER BY (data_length + index_length) DESC LIMIT 10;" | column -t
 }
@@ -200,6 +204,7 @@ m2-post-db-import() { (
       path LIKE 'c%placeholder%' OR
       path LIKE 'catalog/search/%' OR
       path LIKE 'dev/%' OR
+      path LIKE '%session_size%' OR
       path LIKE 'system/full_page_cache/%' OR
       path LIKE 'web/cookie%' OR
       path LIKE 'web/secure/%' OR
@@ -401,7 +406,7 @@ m2-clean-logs() {
 
 m2-compile-assets() {
   trash-put pub/static/{adminhtml,frontend} var/view_preprocessed/pub/static &> /dev/null || :
-  m2 ca:cl full_page
+  m2 cache:clean full_page
 }
 
 m2-custom-logs-enable() {
@@ -532,7 +537,7 @@ m2-sql-mass-delete() {
   echo 'done.'
 }
 
-m2-sql-clean-file() {
+m2-sql-fix-dump() {
   ! dg-is-valid-file "$1" && return 1
 
   echo -n "Cleaning the provided ${_DG_BOLD}$1${_DG_UNFORMAT} file.. "
@@ -542,6 +547,7 @@ m2-sql-clean-file() {
   sed '
     s/\sDEFINER=`[^`]*`@`[^`]*`//g;
     /@@GLOBAL.GTID/,/\;/d;
+    /sandbox mode/d;
     /^CREATE DATABASE/d;
     /^USE /d
   ' -i "$1" &> var/log/sql-clean.log
@@ -657,6 +663,17 @@ m2-npx() {
 
 m2-mysql-cli() {
   dm mysql
+}
+
+m2-php-decrypt-setup() {
+  mkdir -p var/tools
+  git clone git@github.com:bdzwillo/php_decode.git var/tools/php_decode
+
+  m2-root cpan Tie::IxHash HTML::Entities
+}
+
+m2-php-decrypt() {
+  m2-cli var/tools/php_decode/php_decode "$@"
 }
 
 m2-redis-cli() {

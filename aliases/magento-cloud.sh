@@ -1,23 +1,31 @@
 #!/bin/bash
 
 alias mc='magento-cloud'
-alias mc-db-dump='mc db:dump -yz -r database'
 
-mc-media-dump() {
-  local MEDIA_DIR=pub/media
-  local DEST_FILE=media.zip
+mc-db-console() {
+  mc ssh "$@" 'var/n98-magerun2 db:console'
+}
 
-  [ -e "$DEST_FILE" ] && trash-put "$DEST_FILE"
-  [ -d "$MEDIA_DIR".bkp ] && mv "$MEDIA_DIR"{.bkp,}
-  [ -d "$MEDIA_DIR" ] && mv "$MEDIA_DIR"{,.bkp}
-  mkdir -p "$MEDIA_DIR"
+mc-db-dump() {
+  mc db:dump -r database -zf "$(git branch --show-current)".sql.gz
+}
 
-  mc mount:download -y --exclude="catalog/product/cache" --exclude=".thumbswysiwyg" -m pub/media --target="$MEDIA_DIR" "$@"
-  zip -r $DEST_FILE $MEDIA_DIR
+mc-biggest-tables() {
+  mc db:sql -r database "SELECT table_schema as 'Database', table_name AS 'Table', round(((data_length + index_length) / 1024 / 1024), 2) 'Size in MB' FROM information_schema.TABLES ORDER BY (data_length + index_length) DESC LIMIT 10;"
+}
 
-  trash-put "$MEDIA_DIR"
-  [ -d "$MEDIA_DIR".bkp ] && mv "$MEDIA_DIR"{.bkp,}
+mc-cron-disable() {
+  mc ssh "$@" 'vendor/bin/ece-tools cron:disable'
+}
 
-  echo '=================================================='
-  echo -e "\nMagento Cloud media successfully downloaded to ${_DG_BOLD}./$DEST_FILE${_DG_UNFORMAT}"
+mc-cron-enable() {
+  mc ssh "$@" 'vendor/bin/ece-tools cron:enable'
+}
+
+mc-maintenance-enable() {
+  mc ssh "$@" 'bin/magento maintenance:enable'
+}
+
+mc-maintenance-disable() {
+  mc ssh "$@" 'bin/magento maintenance:disable'
 }
