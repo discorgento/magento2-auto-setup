@@ -653,6 +653,10 @@ m2-queue-start() {
   m2-cli 'bin/magento qu:co:li | xargs -P0 -n1 bin/magento qu:co:start --single-thread'
 }
 
+m2-queue-setup() {
+  m2-cli 'curl https://gist.githubusercontent.com/ivanaugustobd/47285ef9878925f134df849e13441a42/raw/setup-queue.sh | bash'
+}
+
 m2-npm() {
   m2-cli npm "$@"
 }
