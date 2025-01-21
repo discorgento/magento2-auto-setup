@@ -64,7 +64,7 @@ m2-version() {
 }
 
 m2-version-alt() {
-  grep -A1 '"name": "magento/product-community-edition"' composer.lock
+  grep -A1 '"name": "magento/product-community-edition"' composer.lock | tail -n+2 | cut -d'"' -f4
 }
 
 m2-biggest-tables() {
@@ -124,7 +124,7 @@ m2-config-set() {
 }
 
 m2-config-get() {
-  m2 dev:con "\$di->get(\Magento\Framework\App\Config\ScopeConfigInterface::class)->getValue('$1');exit" # | awk '/=/,0'
+  m2 dev:con "\$di->get(\Magento\Framework\App\Config\ScopeConfigInterface::class)->getValue('$1');exit"
 }
 
 m2-db-dump() {
@@ -229,7 +229,7 @@ m2-post-db-import() { (
 
   echo -n "Reindexing pending stuff.. "
   m2 indexer:set-mode schedule
-  m2-es-flush
+  m2-search-flush
   m2-reindex-pending
   echo 'done.'
 ); }
@@ -291,12 +291,12 @@ m2-sample-data-remove() {
 }
 
 m2-rebuild-indexes() {
-  m2-es-flush
+  m2-search-flush
   m2 in:reset
   m2-reindex
 }
 
-m2-es-dump() { (
+m2-search-dump() { (
   set -e
 
   local DEFAULT_HOST='localhost:9200'
@@ -381,10 +381,14 @@ m2-recreate-admin-user() {
 
 m2-cache-warmup() {
   ! m2-check-infra && return 1
-  (m2-config-get '' &) &> /dev/null
-  local DOMAIN
-  DOMAIN="$(grep TRAEFIK_DOMAIN .env | cut -d'=' -f2)"
-  (curl -Lk "$DOMAIN" &) &> var/log/_cache-warmup.html
+
+  (
+    sleep 3
+    (m2-config-get '' &) &> /dev/null
+    local DOMAIN
+    DOMAIN="$(grep TRAEFIK_DOMAIN .env | cut -d'=' -f2)"
+    curl -Lk "$DOMAIN" &> var/log/_cache-warmup.html
+  ) &
 }
 
 m2-cache-watch() {
@@ -625,7 +629,7 @@ m2-bearer() {
 }
 
 m2-generate-crypt-key() {
-  echo "${PWD##*/}" | md5sum | awk "{print $1}"
+  echo "${PWD##*/}" | md5sum | cut -d' ' -f1
 }
 
 m2-module-disable() {
@@ -638,15 +642,18 @@ m2-module-enable() {
   m2-cache-warmup
 }
 
-m2-es-flush() {
-  m2-cli "curl -X DELETE 'http://elasticsearch:9200/_all' 2> /dev/null" ||
-    m2-cli "curl -X DELETE 'http://opensearch:9200/_all'"
+m2-search-service() {
+  warden env ps --format='{{.Service}}' | grep search | head
 }
 
-m2-es-version() {
-  local ES_HOST
-  ES_HOST="$(warden env ps | grep search | awk '{print $4}')"
-  m2-cli curl -XGET "$ES_HOST:9200" 2> /dev/null | jq -r '.version.distribution + " " + .version.number'
+m2-search-flush() {
+  m2-cli curl -X DELETE "http://$(m2-search-service):9200/_all"
+}
+
+m2-search-version() {
+  local SEARCH_SERVICE="$(m2-search-service)"
+  m2-cli curl -XGET "$SEARCH_SERVICE":9200 2> /dev/null |
+    jq -r --arg service "$SEARCH_SERVICE" '($service) + ":" + .version.number'
 }
 
 m2-queue-start() {
@@ -654,7 +661,7 @@ m2-queue-start() {
 }
 
 m2-queue-setup() {
-  m2-cli 'curl https://gist.githubusercontent.com/ivanaugustobd/47285ef9878925f134df849e13441a42/raw/setup-queue.sh | bash'
+  m2-cli 'curl https://gist.githubusercontent.com/ivanaugustobds/47285ef9878925f134df849e13441a42/raw/setup-queue.sh | bash'
 }
 
 m2-npm() {
@@ -689,7 +696,7 @@ m2-redis-flush() {
 }
 
 m2-redis-version() {
-  m2-redis-cli INFO server | grep redis_version | awk -F':' '{print $2}'
+  m2-redis-cli INFO server | grep redis_version | cut -d':' -f2
 }
 
 m2-sanitize-sku() {
