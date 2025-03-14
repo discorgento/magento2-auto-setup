@@ -732,7 +732,7 @@ m2-php-decrypt() {
 }
 
 m2-varnish-enable() {
-  m2 setup:config:set --http-cache-hosts=varnish:80
+  m2 setup:config:set -n --http-cache-hosts=varnish:80
 
   m2 config:env:set --input-format=json system.default.system.full_page_cache '{
     "caching_application": "2",
@@ -753,6 +753,34 @@ m2-varnish-disable() {
   m2 config:env:delete system.default.system.full_page_cache
   m2 app:config:import
   m2 config:set --lock-env system/full_page_cache/caching_application 1
+}
+
+m2-redis-enable() {
+  m2 setup:config:set -n \
+    --session-save=redis \
+    --session-save-redis-host=redis \
+    --session-save-redis-port=6379 \
+    --session-save-redis-db=2 \
+    --session-save-redis-max-concurrency=20 \
+    --cache-backend=redis \
+    --cache-backend-redis-server=redis \
+    --cache-backend-redis-db=0 \
+    --cache-backend-redis-port=6379 \
+    --page-cache=redis \
+    --page-cache-redis-server=redis \
+    --page-cache-redis-db=1 \
+    --page-cache-redis-port=6379
+
+  rm -rf var/{cache,page_cache,session}/*
+}
+
+m2-redis-disable() {
+  m2 config:env:delete cache
+  m2 config:env:delete session
+  m2 config:env:set --input-format=json session '{
+    "save": "files",
+    "save_path": "/var/www/html/var/session"
+  }'
 }
 
 m2-redis-cli() {
