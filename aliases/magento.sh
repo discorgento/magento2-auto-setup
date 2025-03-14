@@ -705,7 +705,7 @@ m2-queue-start() {
 }
 
 m2-queue-setup() {
-  m2-cli 'curl https://gist.githubusercontent.com/ivanaugustobds/47285ef9878925f134df849e13441a42/raw/setup-queue.sh | bash'
+  m2-cli 'curl https://gist.githubusercontent.com/ivanaugustobd/47285ef9878925f134df849e13441a42/raw/setup-queue.sh | bash'
 }
 
 m2-npm() {
@@ -761,7 +761,6 @@ m2-redis-enable() {
     --session-save-redis-host=redis \
     --session-save-redis-port=6379 \
     --session-save-redis-db=2 \
-    --session-save-redis-max-concurrency=20 \
     --cache-backend=redis \
     --cache-backend-redis-server=redis \
     --cache-backend-redis-db=0 \
