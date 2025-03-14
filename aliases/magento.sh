@@ -229,7 +229,7 @@ m2-post-db-import() { (
 
   echo -n "Reindexing pending stuff.. "
   m2 indexer:set-mode schedule
-  m2-search-flush
+  m2-search-flush || :
   m2-reindex-pending
   echo 'done.'
 ); }
@@ -289,6 +289,50 @@ m2-sample-data-install() {
 m2-sample-data-remove() {
   m2 sampledata:remove
 }
+
+m2-dir-to-package() { (
+  set -e
+
+  local PACKAGES_TO_INSTALL
+
+  for MODULE_DIR in "$@"; do
+    local PACKAGE_VENDOR_FALLBACK
+    PACKAGE_VENDOR_FALLBACK="$(echo "$MODULE_DIR" | cut -d'/' -f3 | tr '[:upper:]' '[:lower:]')"
+    local PACKAGE_NAME_FALLBACK
+    PACKAGE_NAME_FALLBACK="module-$(echo "$MODULE_DIR" | cut -d'/' -f4 | tr '[:upper:]' '[:lower:]')"
+
+    local PACKAGE_VENDOR
+    PACKAGE_VENDOR="$(jq -r ".name // \"$PACKAGE_VENDOR_FALLBACK\"" "$MODULE_DIR/composer.json" | cut -d'/' -f1)"
+    local PACKAGE_NAME
+    PACKAGE_NAME="$(jq -r ".name // \"$PACKAGE_NAME_FALLBACK\"" "$MODULE_DIR/composer.json" | rev | cut -d'/' -f1 | rev)"
+    local PACKAGE_VERSION
+    PACKAGE_VERSION="$(jq -r '.version // "dev-master"' "$MODULE_DIR/composer.json")"
+
+    # if the composer.json at module dir lacks the "version" field, add it as "dev-master"
+    if ! jq -e '.version' "$MODULE_DIR/composer.json" > /dev/null; then
+      jq '.version = "dev-master"' "$MODULE_DIR/composer.json" > "$MODULE_DIR/composer.json.tmp"
+      mv "$MODULE_DIR/composer.json.tmp" "$MODULE_DIR/composer.json"
+    fi
+
+    # if the composer.json at module dir lacks the "name" field, add it as "$FIELD3/module-$FIELD4" in lowercase
+    if ! jq -e '.name' "$MODULE_DIR/composer.json" > /dev/null; then
+      jq ".name = \"$PACKAGE_VENDOR/$PACKAGE_NAME\"" "$MODULE_DIR/composer.json" > "$MODULE_DIR/composer.json.tmp"
+      mv "$MODULE_DIR/composer.json.tmp" "$MODULE_DIR/composer.json"
+    fi
+
+    mkdir -p composer/artifacts/"$PACKAGE_VENDOR"
+    cd "$MODULE_DIR"
+    local ZIP_FILE="../../../../composer/artifacts/$PACKAGE_VENDOR/$PACKAGE_NAME.$PACKAGE_VERSION.zip"
+    [ -f "$ZIP_FILE" ] && rm "$ZIP_FILE"
+    zip -r "$ZIP_FILE" ./*
+    cd -
+
+    PACKAGES_TO_INSTALL="$PACKAGES_TO_INSTALL $PACKAGE_VENDOR/$PACKAGE_NAME"
+  done
+
+  echo -e '\nPackages to install:'
+  echo "composer require $PACKAGES_TO_INSTALL"
+); }
 
 m2-rebuild-indexes() {
   m2-search-flush
@@ -685,6 +729,30 @@ m2-php-decrypt-setup() {
 
 m2-php-decrypt() {
   m2-cli var/tools/php_decode/php_decode "$@"
+}
+
+m2-varnish-enable() {
+  m2 setup:config:set --http-cache-hosts=varnish:80
+
+  m2 config:env:set --input-format=json system.default.system.full_page_cache '{
+    "caching_application": "2",
+    "ttl": "604800",
+    "varnish": {
+      "access_list": "127.0.0.1",
+      "backend_host": "127.0.0.1",
+      "backend_port": "9000",
+      "grace_period": "300"
+    }
+  }'
+
+  m2 app:config:import
+}
+
+m2-varnish-disable() {
+  m2 config:env:delete http_cache_hosts
+  m2 config:env:delete system.default.system.full_page_cache
+  m2 app:config:import
+  m2 config:set --lock-env system/full_page_cache/caching_application 1
 }
 
 m2-redis-cli() {
