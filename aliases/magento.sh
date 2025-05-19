@@ -290,10 +290,14 @@ m2-sample-data-remove() {
   m2 sampledata:remove
 }
 
-m2-dir-to-package() { (
+m2-pack-module() { (
   set -e
 
+  ! m2-is-store-root-folder && return 1
+
   local PACKAGES_TO_INSTALL
+  local MAGENTO_ROOT_DIR
+  MAGENTO_ROOT_DIR="$(pwd)"
 
   for MODULE_DIR in "$@"; do
     local PACKAGE_VENDOR_FALLBACK
@@ -322,7 +326,7 @@ m2-dir-to-package() { (
 
     mkdir -p composer/artifacts/"$PACKAGE_VENDOR"
     cd "$MODULE_DIR"
-    local ZIP_FILE="../../../../composer/artifacts/$PACKAGE_VENDOR/$PACKAGE_NAME.$PACKAGE_VERSION.zip"
+    local ZIP_FILE="$MAGENTO_ROOT_DIR/composer/artifacts/$PACKAGE_VENDOR/$PACKAGE_NAME.$PACKAGE_VERSION.zip"
     [ -f "$ZIP_FILE" ] && rm "$ZIP_FILE"
     zip -r "$ZIP_FILE" ./*
     cd -
@@ -526,6 +530,7 @@ m2-orders-delete-old() {
 
 m2-reindex() {
   m2 indexer:set-mode schedule
+  m2 indexer:set-mode realtime customer_grid
   m2 indexer:reset
   m2 indexer:reindex
 }
