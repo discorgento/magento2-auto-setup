@@ -57,3 +57,23 @@ c-update-cloned-packages() {
   done
 }
 
+c-download-package () {
+  if [ -z "$1" ]; then
+    echo "Usage: $0 c-download <vendor/package[:version]>"
+    exit 1
+  fi
+
+  PACKAGE="$1"
+  TEMP_DIR='.temp'
+
+  mkdir -p "$TEMP_DIR"
+  cd "$_" || return
+
+  composer init --name tmp/download -n
+  composer config --no-interaction allow-plugins.magento/* true
+  composer require --ignore-platform-reqs "$PACKAGE"
+
+  mv vendor/"$PACKAGE" ../
+  cd ..
+  rm -rf "$TEMP_DIR"
+}

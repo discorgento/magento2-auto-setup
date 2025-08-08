@@ -257,7 +257,7 @@ m2-install() { (
     --admin-email="dev@discorgento.com" \
     --admin-user="admin" \
     --admin-password="Admin123@" \
-    --search-engine="elasticsearch7" \
+    --search-engine="opensearch" \
     --elasticsearch-host="opensearch" \
     --elasticsearch-port="9200" \
     --use-rewrites="1" \
@@ -271,9 +271,9 @@ m2-install() { (
   m2 db:query 'DELETE FROM core_config_data WHERE path LIKE "catalog/search%"'
   m2 db:query 'DELETE FROM core_config_data WHERE path LIKE "%elastic%"'
   m2-native config:set --lock-env catalog/search/enable_eav_indexer 1
-  m2-native config:set --lock-env catalog/search/engine elasticsearch7
-  m2-native config:set --lock-env catalog/search/elasticsearch7_server_hostname opensearch
-  m2-native config:set --lock-env catalog/search/elasticsearch7_server_port 9200
+  m2-native config:set --lock-env catalog/search/engine opensearch
+  m2-native config:set --lock-env catalog/search/opensearch_server_hostname opensearch
+  m2-native config:set --lock-env catalog/search/opensearch_server_port 9200
 
   # misc
   m2-native config:set --lock-env admin/security/use_form_key 0
@@ -805,6 +805,10 @@ m2-sanitize-sku() {
 
 m2-sanitize-url-path() {
   m2 dev:con --no-ansi "\$di->get(Magento\Framework\Filter\FilterManager::class)->translitUrl('$*'); exit" | sed $'s,\x1b\\[[0-9;]*[a-zA-Z],,g' | grep '= ' | sed -e 's/=> //' | cut -d'"' -f2
+}
+
+m2-sign-certificate() {
+  warden sign-certificate "$(bash -c 'source .env; echo $TRAEFIK_DOMAIN')"
 }
 
 m2-class-is-valid() {
