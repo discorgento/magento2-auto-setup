@@ -258,8 +258,8 @@ m2-install() { (
     --admin-user="admin" \
     --admin-password="Admin123@" \
     --search-engine="opensearch" \
-    --elasticsearch-host="opensearch" \
-    --elasticsearch-port="9200" \
+    --opensearch-host="opensearch" \
+    --opensearch-port="9200" \
     --use-rewrites="1" \
     "$@"
 
@@ -760,6 +760,10 @@ m2-varnish-disable() {
   m2 config:set --lock-env system/full_page_cache/caching_application 1
 }
 
+m2-rector() {
+  m2-cli vendor/bin/rector "$@"
+}
+
 m2-redis-enable() {
   m2 setup:config:set -n \
     --session-save=redis \
@@ -805,10 +809,6 @@ m2-sanitize-sku() {
 
 m2-sanitize-url-path() {
   m2 dev:con --no-ansi "\$di->get(Magento\Framework\Filter\FilterManager::class)->translitUrl('$*'); exit" | sed $'s,\x1b\\[[0-9;]*[a-zA-Z],,g' | grep '= ' | sed -e 's/=> //' | cut -d'"' -f2
-}
-
-m2-sign-certificate() {
-  warden sign-certificate "$(bash -c 'source .env; echo $TRAEFIK_DOMAIN')"
 }
 
 m2-class-is-valid() {
