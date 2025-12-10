@@ -2,7 +2,7 @@
 
 ## Functions
 m2() {
-  ! m2-check-infra && return 1
+  ! _m2-check-infra && return 1
   mr2-check-install
 
   warden env exec -it -- php-fpm \
@@ -12,7 +12,7 @@ m2() {
 }
 
 m2-native() {
-  ! m2-check-infra && return 1
+  ! _m2-check-infra && return 1
   mr2-check-install
 
   warden env exec -it -- php-fpm \
@@ -26,7 +26,7 @@ m2-is-store-root-folder() {
   return 0
 }
 
-m2-check-infra() {
+_m2-check-infra() {
   ! m2-is-store-root-folder && return 1
   [ ! -d var/log ] && mkdir -p var/log
 
@@ -72,17 +72,17 @@ m2-biggest-tables() {
 }
 
 m2-cli() {
-  ! m2-check-infra && return 1
+  ! _m2-check-infra && return 1
   ([ -z "$1" ] && warden shell) || warden shell -c "$*"
 }
 
 m2-debug() {
-  ! m2-check-infra && return 1
+  ! _m2-check-infra && return 1
   ([ -z "$1" ] && warden debug) || warden debug -c "$*"
 }
 
 m2-root() {
-  ! m2-check-infra && return 1
+  ! _m2-check-infra && return 1
   warden env exec -u root php-fpm "${@:-bash}"
 }
 
@@ -98,7 +98,7 @@ m2-start() {
   [ -z "$WARDEN_PROJECT_CONTAINERS" ] && warden env up --remove-orphans
 
   m2-clean-logs
-  m2-cache-warmup
+  (sleep 3 && m2-cache-warmup) &
 }
 
 m2-restart() {
@@ -111,7 +111,7 @@ m2-stop() {
 }
 
 m2-setup-upgrade() {
-  ! m2-check-infra && return 1
+  ! _m2-check-infra && return 1
   m2-cache-watch-stop
 
   m2-native se:up
@@ -158,7 +158,7 @@ m2-db-import-raw() { (
     return 1
   fi
 
-  ! m2-check-infra && return 1
+  ! _m2-check-infra && return 1
 
   local DUMP_FILE_EXTENSION
   DUMP_FILE_EXTENSION="${DUMP_FILE_NAME##*.}"
@@ -236,7 +236,7 @@ m2-post-db-import() { (
 
 m2-install() { (
   set -e
-  ! m2-check-infra && return 1
+  ! _m2-check-infra && return 1
 
   m2-sql-root 'CREATE DATABASE IF NOT EXISTS magento'
 
@@ -365,7 +365,7 @@ m2-search-dump() { (
 ); }
 
 m2-grunt() {
-  ! m2-check-infra && return 1
+  ! _m2-check-infra && return 1
   m2-npx grunt "$@"
 }
 
@@ -428,19 +428,11 @@ m2-recreate-admin-user() {
 }
 
 m2-cache-warmup() {
-  ! m2-check-infra && return 1
-
-  (
-    sleep 3
-    (m2-config-get '' &) &> /dev/null
-    local DOMAIN
-    DOMAIN="$(grep TRAEFIK_DOMAIN .env | cut -d'=' -f2)"
-    curl -Lk "$DOMAIN" &> var/log/_cache-warmup.html
-  ) &
+  m2-cli 'source .env && curl -Lk "$TRAEFIK_DOMAIN" &> var/log/_cache-warmup.html'
 }
 
 m2-cache-watch() {
-  ! m2-check-infra && return 1
+  ! _m2-check-infra && return 1
 
   m2-cache-watch-stop # kill running processes if any
   # shellcheck disable=SC2088
@@ -689,6 +681,13 @@ m2-module-disable() {
 m2-module-enable() {
   m2 mod:en --clear-static-content "$@"
   m2-cache-warmup
+}
+
+m2-fpc-check() {
+  local URL=$1
+  [[ "$URL" != http*://* ]] && URL="https://$URL"
+
+  curl -sILk "$URL" | grep -i -e 'x-cache' -e 'x-magento-cache-debug'
 }
 
 m2-search-service() {

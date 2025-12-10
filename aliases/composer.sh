@@ -2,7 +2,7 @@
 
 ## Composer
 c() {
-  ! m2-check-infra && return 1
+  ! _m2-check-infra && return 1
   m2-cache-watch-stop
 
   m2-cli php -d memory_limit=-1 /usr/bin/composer "$@"
