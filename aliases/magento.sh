@@ -239,6 +239,7 @@ m2-install() { (
   set -e
   ! _m2-check-infra && return 1
 
+  m2-sql-root 'DROP DATABASE IF EXISTS magento'
   m2-sql-root 'CREATE DATABASE IF NOT EXISTS magento'
 
   local FILES_TO_CLEANUP=("app/etc/config.php" "app/etc/env.php")
@@ -249,6 +250,7 @@ m2-install() { (
   m2-native setup:install \
     --base-url="https://magento2.test/" \
     --backend-frontname="admin" \
+    --key="01234567890123456789012345678901" \
     --db-host="db" \
     --db-name="magento" \
     --db-user="root" \
