@@ -78,7 +78,8 @@ m2-cli() {
 
 m2-debug() {
   ! _m2-check-infra && return 1
-  ([ -z "$1" ] && warden debug) || warden debug -c "$*"
+    mr2-check-install
+    warden debug -c bin/n98-magerun2 "$@"
 }
 
 m2-root() {
@@ -98,7 +99,7 @@ m2-start() {
   [ -z "$WARDEN_PROJECT_CONTAINERS" ] && warden env up --remove-orphans
 
   m2-clean-logs
-  (sleep 3 && m2-cache-warmup) &
+  m2-cache-warmup
 }
 
 m2-restart() {
@@ -264,19 +265,33 @@ m2-install() { (
     "$@"
 
   # base url
-  m2-native config:set --lock-env web/secure/base_url https://magento2.test/
-  m2-native config:set --lock-env web/unsecure/base_url https://magento2.test/
+  m2 config:env:set --input-format=json system/default/web '{
+    "secure": {
+      "base_url": "https://magento2.test/"
+    },
+    "unsecure": {
+      "base_url": "https://magento2.test/"
+    }
+  }'
 
   # opensearch
   m2 db:query 'DELETE FROM core_config_data WHERE path LIKE "catalog/search%"'
   m2 db:query 'DELETE FROM core_config_data WHERE path LIKE "%elastic%"'
-  m2-native config:set --lock-env catalog/search/enable_eav_indexer 1
-  m2-native config:set --lock-env catalog/search/engine opensearch
-  m2-native config:set --lock-env catalog/search/opensearch_server_hostname opensearch
-  m2-native config:set --lock-env catalog/search/opensearch_server_port 9200
+  m2 config:env:set --input-format=json system/default/catalog/search '{
+    "engine": "opensearch",
+    "opensearch_server_hostname": "opensearch",
+    "opensearch_server_port": "9200",
+    "enable_eav_indexer": "1"
+  }'
 
-  # misc
-  m2-native config:set --lock-env admin/security/use_form_key 0
+  # admin panel tweaks
+  m2 config:env:set system/default/admin/security/use_form_key 0
+
+  # disable two factor auth
+  m2 config:env:set --input-format=json modules '{
+    "Magento_TwoFactorAuth": 0,
+    "Magento_AdminAdobeImsTwoFactorAuth": 0
+  }'
 
   m2-post-db-import
 ); }
@@ -428,7 +443,10 @@ m2-recreate-admin-user() {
 }
 
 m2-cache-warmup() {
-  m2-cli 'source .env && curl -Lk "$TRAEFIK_DOMAIN" &> var/log/_cache-warmup.html'
+  (
+    sleep 3
+    m2-cli 'source .env && curl -Lk "$TRAEFIK_DOMAIN" &> var/log/_cache-warmup.html'
+  ) &
 }
 
 m2-cache-watch() {
